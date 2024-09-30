@@ -1,0 +1,144 @@
+{
+    "tipe_datasource": "NON_HYBRID",
+    "koneksi_id": 1,
+    "mode": "grafik",
+    "sumber_data_id": "d727735f-63b0-47e2-950e-f89d63044614",
+    "model_visual": "column",
+    "categories_column": [
+      {
+        "lembar_kerja_kategori_id": "19f1ae97-dad6-4818-9b9e-4190153ee815",
+        "lembar_kerja_id": "c5a1642f-05f3-421b-8bf4-b6bf00b0e42d",
+        "sumber_data_kolom_id": "1d76ed97-5326-48b8-aa82-fa269e80798b",
+        "sumber_data_tabel_id": "861bec91-6158-4531-a785-ef23105ea914",
+        "column": "ekraf_pdb.tahun",
+        "label": "Tahun",
+        "range_data_filter": null,
+        "function": null,
+        "order_by": null,
+        "order_method": null,
+        "is_show_analytic": null,
+        "urutan": 1
+      }
+    ],
+    "value_column": [
+      {
+        "lembar_kerja_nilai_id": "70c67bee-3e3e-467a-ae6c-a1cc27d25190",
+        "lembar_kerja_id": "c5a1642f-05f3-421b-8bf4-b6bf00b0e42d",
+        "sumber_data_kolom_id": "382a0604-8c7f-4037-9761-35b1f4f79521",
+        "function_value": "sum",
+        "sumber_data_tabel_id": "861bec91-6158-4531-a785-ef23105ea914",
+        "column": "ekraf_pdb.adhb",
+        "label": "Adhb",
+        "tipe_data": "double precision",
+        "urutan": 1,
+        "order_by": null,
+        "order_method": null,
+        "filter_top_n": null
+      },
+      {
+        "lembar_kerja_nilai_id": "f8ff6de7-dfdc-4206-b8d0-bfa3a0d90eab",
+        "lembar_kerja_id": "c5a1642f-05f3-421b-8bf4-b6bf00b0e42d",
+        "sumber_data_kolom_id": null,
+        "function_value": "sum",
+        "sumber_data_tabel_id": "861bec91-6158-4531-a785-ef23105ea914",
+        "column": "ekraf_pdb.kontribusi",
+        "label": "Kontribusi",
+        "tipe_data": "double precision",
+        "urutan": 2,
+        "order_by": null,
+        "order_method": null,
+        "filter_top_n": null
+      }
+    ],
+    "filter": [
+      {
+        "lembar_kerja_filter_id": "8ed20427-d2d7-44ff-b82b-15c512b62686",
+        "lembar_kerja_id": "c5a1642f-05f3-421b-8bf4-b6bf00b0e42d",
+        "field_id": "ccd865c4-2bfc-404e-b1c8-11d5e2b831fc",
+        "field_label": "Subsektor",
+        "tipe_data": "Selection Field",
+        "reference_tabel": "861bec91-6158-4531-a785-ef23105ea914",
+        "reference_kolom_id": "ccd865c4-2bfc-404e-b1c8-11d5e2b831fc",
+        "reference_kolom_nama": "ccd865c4-2bfc-404e-b1c8-11d5e2b831fc",
+        "value": ["PDB Ekraf"],
+        "range": false,
+        "label": "PDB Ekraf",
+        "field_nama": "ekraf_pdb.subsektor",
+        "is_show_analytic": null,
+        "operator": null,
+        "input_type_analytic": null,
+        "field_selected": {
+          "label": "subsektor",
+          "nama": "subsektor"
+        },
+        "label_reference_kolom_id": "subsektor",
+        "label_reference_kolom_nama": "subsektor",
+        "list_kolom": [
+          {"subsektor": "Periklanan"},
+          {"subsektor": "Arsitektur"},
+          {"subsektor": "Pajak Dikurang Subsidi Atas Produk Ekraf"},
+          {"subsektor": "Seni Rupa"},
+          {"subsektor": "Fotografi"},
+          {"subsektor": "Aplikasi dan Game Developer"},
+          {"subsektor": "PDB Nasional"},
+          {"subsektor": "Desain Komunikasi Visual"},
+          {"subsektor": "Seni Pertunjukan"},
+          {"subsektor": "Fashion"},
+          {"subsektor": "Film, Animasi, dan Video"},
+          {"subsektor": "Musik"},
+          {"subsektor": "PDB Ekraf Atas Harga Dasar"},
+          {"subsektor": "Televisi dan Radio"},
+          {"subsektor": "Kuliner"},
+          {"subsektor": "Desain Interior"},
+          {"subsektor": "PDB Ekraf"},
+          {"subsektor": "PDB Non Ekraf"},
+          {"subsektor": "Desain Produk"},
+          {"subsektor": "Penerbitan"},
+          {"subsektor": "Kriya"}
+        ]
+      },
+      {
+        "lembar_kerja_filter_id": "1315e6db-5e94-4740-9222-477fc4eac30a",
+        "lembar_kerja_id": "c5a1642f-05f3-421b-8bf4-b6bf00b0e42d",
+        "field_id": "1d76ed97-5326-48b8-aa82-fa269e80798b",
+        "field_label": "Tahun",
+        "tipe_data": "Selection Field",
+        "reference_tabel": "861bec91-6158-4531-a785-ef23105ea914",
+        "reference_kolom_id": "1d76ed97-5326-48b8-aa82-fa269e80798b",
+        "reference_kolom_nama": "1d76ed97-5326-48b8-aa82-fa269e80798b",
+        "value": ["2022", "2018", "2021", "2019", "2020"],
+        "range": false,
+        "label": "Tahun",
+        "field_nama": "ekraf_pdb.tahun",
+        "is_show_analytic": null,
+        "operator": null,
+        "input_type_analytic": null,
+        "field_selected": {
+          "label": "tahun",
+          "nama": "tahun"
+        },
+        "label_reference_kolom_id": "tahun",
+        "label_reference_kolom_nama": "tahun",
+        "list_kolom": [
+          {"tahun": "2016"},
+          {"tahun": "2019"},
+          {"tahun": "2017"},
+          {"tahun": "2010"},
+          {"tahun": "2020"},
+          {"tahun": "2015"},
+          {"tahun": "2014"},
+          {"tahun": "2011"},
+          {"tahun": "2021"},
+          {"tahun": "2012"},
+          {"tahun": "2022"},
+          {"tahun": "2018"},
+          {"tahun": "2013"}
+        ]
+      }
+    ],
+    "gradasi_warna": {},
+    "radius_lingkar": {},
+    "funnel_column": [],
+    "lembar_kerja_id": "c5a1642f-05f3-421b-8bf4-b6bf00b0e42d"
+  }
+  

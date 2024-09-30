@@ -76,19 +76,21 @@ if st.button("Send Message"):
             st.write("Waiting for run to complete...")
             time.sleep(sleep_interval)
     # Function to visualize the response
-    def visualize_response(response):
-        # Example: Generate a bar chart from some dummy data
-        categories = ['Category A', 'Category B', 'Category C']
-        values = [len(response), len(response) // 2, len(response) // 3]  # Example data based on response length
+    # def visualize_response(response):
+    #     # Example: Generate a bar chart from some dummy data
+    #     categories = ['Category A', 'Category B', 'Category C']
+    #     values = [len(response), len(response) // 2, len(response) // 3]  # Example data based on response length
 
-        fig, ax = plt.subplots()
-        ax.bar(categories, values)
-        ax.set_title("Example Visualization based on Response")
-        ax.set_xlabel("Categories")
-        ax.set_ylabel("Values")
+    #     fig, ax = plt.subplots()
+    #     ax.bar(categories, values)
+    #     ax.set_title("Example Visualization based on Response")
+    #     ax.set_xlabel("Categories")
+    #     ax.set_ylabel("Values")
 
-        # Display the chart in Streamlit
-        st.pyplot(fig)
+    #     # Display the chart in Streamlit
+    #     st.pyplot(fig)
 
     # Wait for the run to complete
-    wait_for_run_completion(client=client, thread_id=thread_id, run_id=run.id)
+    wait_for_run_completion(client=client, thread_id=thread_id, run_id=run.id)    
+
+
