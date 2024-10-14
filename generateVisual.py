@@ -25,43 +25,69 @@ def load_data(file):
         raise ValueError("Unsupported file format")
 
 # Fungsi untuk menganalisis permintaan pengguna menggunakan OpenAI Assistant
-def analyze_user_request(data, user_query, is_dataframe):
+def analyze_visualization_request(data, user_query):
+    system_message = f"""
+    Anda adalah asisten AI yang ahli dalam analisis data dan visualisasi.
+    Data yang tersedia:
+    {data.head().to_json()}
+    
+    Kolom yang tersedia: {', '.join(data.columns)}
+    
+    Tugas Anda adalah menganalisis permintaan pengguna dan memberikan instruksi untuk membuat visualisasi yang sesuai.
+    Harap berikan respons dalam format JSON dengan struktur berikut:
+    {{
+        "chart_type": "jenis_grafik",
+        "x_column": "nama_kolom_x",
+        "y_column": "nama_kolom_y",
+        "title": "judul_grafik",
+        "description": "deskripsi_singkat"
+    }}
+    Jika diminta untuk membuat peta, gunakan:
+    {{
+        "type": "visualization",
+        "chart_type": "map",
+        "latitude_column": "nama_kolom_latitude",
+        "longitude_column": "nama_kolom_longitude",
+        "title": "judul_peta",
+        "description": "deskripsi_singkat"
+    }}
+    """
+    
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo-16k",
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_query}
+        ]
+    )
+    
+    return response.choices[0].message.content
+
+# Fungsi untuk menjawab pertanyaan umum dan terkait data menggunakan OpenAI Assistant
+def answer_question(data, user_question, is_dataframe):
     if is_dataframe:
         system_message = f"""
-        Anda adalah asisten AI yang ahli dalam analisis data dan visualisasi.
+        Anda adalah asisten AI yang ahli dalam analisis data dan menjawab pertanyaan.
         Data yang tersedia:
         {data.head().to_json()}
         
         Kolom yang tersedia: {', '.join(data.columns)}
         
-        Tugas Anda adalah menganalisis permintaan pengguna dan memberikan jawaban berdasarkan data.
-        Jika diminta untuk membuat visualisasi, berikan instruksi dalam format JSON.
-        Untuk pertanyaan analisis, berikan jawaban langsung berdasarkan data tanpa menjelaskan cara membuat grafik atau memberikan kode.
-        Jika pertanyaan di luar konteks data, berikan jawaban umum sesuai dengan pengetahuan Anda.
-        
-        Tugas Anda adalah menganalisis permintaan pengguna dan memberikan instruksi untuk membuat visualisasi yang sesuai.
-        Harap berikan respons dalam format JSON dengan struktur berikut:
-        {{
-            "chart_type": "jenis_grafik",
-            "x_column": "nama_kolom_x",
-            "y_column": "nama_kolom_y",
-            "title": "judul_grafik",
-            "description": "deskripsi_singkat"
-        }}
-        Jika diminta untuk membuat peta, gunakan "chart_type": "map" dan tentukan kolom latitude dan longitude, 
-        # jika diminta untuk membuat chart tampilkan sesuai dengan yang sudah ditentukan.
-        # jika pertanyaan di luar konteks atau pengetahuan umum berikan jawaban sesuai dengan kemampuan model
-        # yang anda miliki.
-        # Untuk pertanyaan analisis, berikan jawaban langsung berdasarkan data tanpa menjelaskan cara membuat grafik.
-        # jika diberikan pertanyaan diluar dari tampilkan visualisasi chart berikan jawaban terkait dengan isi data file sesuai dengan isi data tersebut.
+        Tugas Anda adalah menjawab pertanyaan pengguna berdasarkan data yang tersedia.
+        Jika pertanyaan terkait dengan data, berikan jawaban berdasarkan informasi dalam dataset.
+        Jika pertanyaan adalah pertanyaan umum yang tidak terkait langsung dengan data, 
+        berikan jawaban berdasarkan pengetahuan umum Anda.
+        Berikan jawaban langsung tanpa kode atau instruksi tambahan.
         """
     else:
         system_message = f"""
-        Anda adalah asisten AI yang ahli dalam analisis teks dan menjawab pertanyaan.
+        Anda adalah asisten AI yang ahli dalam menganalisis teks dan menjawab pertanyaan.
         Konten dokumen:
         {data[:1000]}  # Menggunakan 1000 karakter pertama sebagai konteks
 
-        Tugas Anda adalah menjawab pertanyaan pengguna berdasarkan konten dokumen atau pengetahuan umum jika pertanyaan di luar konteks dokumen.
+        Tugas Anda adalah menjawab pertanyaan pengguna berdasarkan konten dokumen jika relevan.
+        Jika pertanyaan tidak terkait langsung dengan konten dokumen, 
+        berikan jawaban berdasarkan pengetahuan umum Anda.
         Berikan jawaban langsung tanpa kode atau instruksi tambahan.
         """
     
@@ -69,7 +95,7 @@ def analyze_user_request(data, user_query, is_dataframe):
         model="gpt-3.5-turbo-16k",
         messages=[
             {"role": "system", "content": system_message},
-            {"role": "user", "content": user_query}
+            {"role": "user", "content": user_question}
         ]
     )
     
@@ -171,7 +197,7 @@ def create_map_visualization(df, viz_instructions):
         initial_view_state=view_state,
         map_style='mapbox://styles/mapbox/light-v9',
         tooltip={
-                "html": "<b>Name:</b> {host_name}<br><b>Place:</b> {neighbourhood}<br><b>Price:</b> ${price}<br><b>Description:</b> {name}<br><b>Place:</b> {neighbourhood_group}",
+                "html": "<b>Name:</b> {host_name}<br><b>Place:</b> {neighbourhood}<br><b>Price:</b> ${price}<br><b>Description:</b> {name}<br><b>Place:</b> {neighbourhood_group}<br><b>Lokasi:<b>{latitude}{longitude}",
                 "style": {"backgroundColor": "steelblue", "color": "white"}
             },
     )
@@ -179,7 +205,6 @@ def create_map_visualization(df, viz_instructions):
 st.set_page_config(layout="wide")
 st.title("AI-Powered Data Analysis and Visualization")
 
-col1, col2 = st.columns([1,6])
 # Aplikasi Streamlit
 with st.sidebar:
     st.header("Data Upload")
@@ -202,28 +227,29 @@ with st.sidebar:
 
 
 if uploaded_file is not None:
-    if is_dataframe:
+    col1, col2 = st.columns(2)
+    
+    with col1:
         st.header("Visualization")
         viz_query = st.text_input("Describe the visualization you want:")
-        if viz_query:
-            viz_instructions = json.loads(analyze_user_request(data, viz_query, is_dataframe))
+        if viz_query and is_dataframe:
+            viz_instructions = json.loads(analyze_visualization_request(data, viz_query))
             st.write("Visualization Instructions:")
             st.json(viz_instructions)
             
             if viz_instructions['chart_type'] == 'map':
                 st.pydeck_chart(create_map_visualization(data, viz_instructions))
-            # else:
-            #     fig = create_visualization(data, viz_instructions)
-            #     st.pyplot(fig)
-            
-            create_visualization(data, viz_instructions)
+            else:
+                create_visualization(data, viz_instructions)
             
             st.write(viz_instructions['description'])
+        elif viz_query and not is_dataframe:
+            st.write("Visualizations are only available for CSV and Excel files.")
     
-    st.header("Ask a Question")
-    user_question = st.text_input("Ask a question about the data or any general question:")
-    if user_question:
-        answer = analyze_user_request(data, user_question, is_dataframe)    
-        st.write("AI Response:")
-        st.write(answer)
-
+    with col2:
+        st.header("Ask a Question")
+        user_question = st.text_input("Ask a question about the data or any general question:")
+        if user_question:
+            answer = answer_question(data, user_question, is_dataframe)
+            st.write("AI Response:")
+            st.write(answer)
