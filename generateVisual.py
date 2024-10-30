@@ -5,7 +5,6 @@ from openai import OpenAI
 import json
 import pydeck as pdk
 import pdfplumber
-import openpyxl
 
 # Inisialisasi klien OpenAI
 client = OpenAI()
