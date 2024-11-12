@@ -1,14 +1,10 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 from openai import OpenAI
 import json
 import pydeck as pdk
 import requests
 import plotly.express as px
-import numpy as np
-import re
-from datetime import datetime
 
 # Inisialisasi klien OpenAI
 client = OpenAI()
@@ -160,23 +156,32 @@ def create_enhanced_filter(df, filter_instructions):
                     continue
                 
                 try:
-                    if operation in ['>', '>=', '<', '<=', '==']:
+                    # Untuk operasi numerik, konversi kolom ke numerik
+                    if operation in ['>', '>=', '<', '<=']:
                         df_filtered[column] = pd.to_numeric(df_filtered[column], errors='coerce')
                         if isinstance(value, str):
                             value = float(value.replace(',', ''))
+                            
+                        if operation == '>':
+                            df_filtered = df_filtered[df_filtered[column] > value]
+                        elif operation == '>=':
+                            df_filtered = df_filtered[df_filtered[column] >= value]
+                        elif operation == '<':
+                            df_filtered = df_filtered[df_filtered[column] < value]
+                        elif operation == '<=':
+                            df_filtered = df_filtered[df_filtered[column] <= value]
                     
-                    if operation == '>':
-                        df_filtered = df_filtered[df_filtered[column] > value]
-                    elif operation == '>=':
-                        df_filtered = df_filtered[df_filtered[column] >= value]
-                    elif operation == '<':
-                        df_filtered = df_filtered[df_filtered[column] < value]
-                    elif operation == '<=':
-                        df_filtered = df_filtered[df_filtered[column] <= value]
+                    # Untuk operasi string equality (==), gunakan string comparison
                     elif operation == '==':
-                        df_filtered = df_filtered[df_filtered[column] == value]
+                        if isinstance(value, str):
+                            # Konversi kolom ke string dan gunakan string comparison case-insensitive
+                            df_filtered = df_filtered[df_filtered[column].astype(str).str.lower() == value.lower()]
+                        else:
+                            df_filtered = df_filtered[df_filtered[column] == value]
+                            
                     elif operation == 'contains':
                         df_filtered = df_filtered[df_filtered[column].astype(str).str.contains(str(value), case=False, na=False)]
+                        
                 except Exception as e:
                     st.warning(f"Error applying filter on column {column}: {str(e)}")
                     continue
@@ -190,7 +195,10 @@ def create_enhanced_filter(df, filter_instructions):
             
             if all([limit_type, limit_value, sort_column]) and sort_column in df_filtered.columns:
                 try:
-                    df_filtered[sort_column] = pd.to_numeric(df_filtered[sort_column], errors='coerce')
+                    # Konversi kolom pengurutan ke numerik hanya jika diperlukan
+                    if df_filtered[sort_column].dtype not in ['int64', 'float64']:
+                        df_filtered[sort_column] = pd.to_numeric(df_filtered[sort_column], errors='coerce')
+                    
                     if limit_type == 'top':
                         df_filtered = df_filtered.nlargest(limit_value, sort_column)
                     elif limit_type == 'bottom':
@@ -208,34 +216,110 @@ def create_enhanced_filter(df, filter_instructions):
         st.error(f"Error in filter application: {str(e)}")
         return df
 
+# Fungsi untuk memproses transformasi data sebelum visualisasi
+def transform_data(df, transform_config):
+    """
+    Fungsi untuk melakukan transformasi data sesuai kebutuhan visualisasi
+    """
+    if not transform_config or 'type' not in transform_config:
+        return df
+        
+    df_transformed = df.copy()
+    transform_type = transform_config['type']
+    
+    try:
+        if transform_type == 'group':
+            by_columns = transform_config.get('by', [])
+            agg_function = transform_config.get('agg_function', 'count')
+            
+            if agg_function == 'count':
+                df_transformed = df_transformed.groupby(by_columns).size().reset_index(name='count')
+            else:
+                agg_column = transform_config.get('column')
+                if agg_column:
+                    df_transformed = df_transformed.groupby(by_columns).agg({agg_column: agg_function}).reset_index()
+                    
+        elif transform_type == 'pivot':
+            index = transform_config.get('index')
+            columns = transform_config.get('columns')
+            values = transform_config.get('values')
+            agg_function = transform_config.get('agg_function', 'sum')
+            
+            if all([index, columns, values]):
+                df_transformed = df_transformed.pivot_table(
+                    index=index,
+                    columns=columns,
+                    values=values,
+                    aggfunc=agg_function
+                ).reset_index()
+                
+        elif transform_type == 'melt':
+            id_vars = transform_config.get('id_vars', [])
+            value_vars = transform_config.get('value_vars', [])
+            
+            if id_vars and value_vars:
+                df_transformed = pd.melt(
+                    df_transformed,
+                    id_vars=id_vars,
+                    value_vars=value_vars
+                )
+                
+        return df_transformed
+        
+    except Exception as e:
+        st.error(f"Error dalam transformasi data: {str(e)}")
+        return df
+
 def get_improved_system_message():
     """
     Sistem prompt yang lebih baik untuk menghasilkan respons yang lebih akurat
     """
     return """
-    Anda adalah asisten AI ahli dalam analisis data dan visualisasi.
+     Anda adalah asisten AI ahli dalam analisis data dan visualisasi. Pahami konteks pertanyaan user dengan baik dan berikan visualisasi yang sesuai.
     
-    Saat memberikan instruksi visualisasi, pastikan untuk:
-    1. Memvalidasi tipe data yang sesuai untuk setiap jenis visualisasi
-    2. Memberikan filter yang spesifik dan sesuai dengan tipe data
-    3. Memberikan deskripsi yang detail dan informatif
-    4. Memastikan konsistensi antara tipe chart dan data yang digunakan
+    Panduan untuk menangani berbagai jenis pertanyaan:
+    1. Untuk pertanyaan tentang distribusi atau perbandingan:
+       - Gunakan bar chart untuk membandingkan nilai numerik antar kategori
+       - Gunakan pie chart untuk menunjukkan proporsi atau persentase dari keseluruhan
+       - Gunakan histogram untuk menunjukkan distribusi data numerik
+    
+    2. Untuk pertanyaan tentang trend atau pola:
+       - Gunakan line chart untuk menunjukkan perubahan nilai sepanjang waktu atau urutan
+       - Gunakan scatter plot untuk menunjukkan hubungan antara dua variabel numerik
+    
+    3. Untuk pertanyaan tentang lokasi:
+       - Gunakan map visualization dengan data latitude dan longitude
     
     Format respons untuk visualisasi harus mengikuti struktur berikut:
     {
         "type": "visualization",
-        "chart_type": "bar|line|scatter|pie|map",
+        "chart_type": "bar|line|scatter|pie|histogram|map",
         "title": "Judul yang Deskriptif",
         "description": "Analisis detail tentang visualisasi",
-        "x_column": "nama_kolom" (untuk chart bar/line/scatter),
-        "y_column": "nama_kolom" (untuk chart bar/line/scatter),
-        "value_column": "nama_kolom" (untuk pie chart),
-        "names_column": "nama_kolom" (untuk pie chart),
+        
+        // Untuk bar/line/scatter chart
+        "x_column": "nama_kolom",
+        "y_column": "nama_kolom",
+        
+        // Untuk pie chart
+        "value_column": "nama_kolom",
+        "names_column": "nama_kolom",
+        
+        // Untuk histogram
+        "value_column": "nama_kolom",
+        "bins": jumlah_bins, // opsional
+        
+        // Untuk agregasi
+        "aggregation": {
+            "type": "count|sum|mean|median",
+            "column": "nama_kolom"
+        },
+        
         "filter": {
             "conditions": [
                 {
                     "column": "nama_kolom",
-                    "operation": ">|>=|<|<=|==|contains",
+                    "operation": ">|>=|<|<=|==|contains|in",
                     "value": nilai_yang_sesuai
                 }
             ],
@@ -244,91 +328,89 @@ def get_improved_system_message():
                 "value": jumlah_data,
                 "sort_column": "nama_kolom"
             }
+        },
+        
+        // Untuk transformasi data
+        "transform": {
+            "type": "group|pivot|melt",
+            "by": ["kolom1", "kolom2"],
+            "agg_function": "count|sum|mean"
         }
     }
     
-    Ketika user meminta untuk menampilkan sejumlah data tertentu:
-    1. Selalu sertakan konfigurasi "limit" dalam filter
-    2. Pastikan "sort_column" sesuai dengan kolom yang akan diurutkan
-    3. Gunakan "top" untuk nilai tertinggi dan "bottom" untuk nilai terendah
-    4. "value" harus berupa angka sesuai jumlah data yang diminta
+    Petunjuk khusus untuk jenis-jenis pertanyaan:
     
-    Contoh untuk menampilkan 3 data tertinggi:
+    1. Untuk pertanyaan tentang nilai tertinggi/terendah:
+       - Gunakan filter dengan limit
+       - Tentukan sort_column yang relevan
+       - Pilih chart_type yang sesuai (bar untuk perbandingan, pie untuk proporsi)
+    
+    2. Untuk pertanyaan tentang distribusi:
+       - Gunakan histogram untuk data numerik kontinyu
+       - Gunakan bar chart untuk data kategorik
+       - Sertakan aggregation jika diperlukan
+    
+    3. Untuk pertanyaan tentang persentase:
+       - Gunakan pie chart
+       - Pastikan value_column dan names_column sesuai
+       - Tambahkan transformasi data jika diperlukan
+    
+    4. Untuk pertanyaan tentang perbandingan antar kategori:
+       - Gunakan bar chart
+       - Sertakan agregasi yang sesuai
+       - Tentukan x_column (kategori) dan y_column (nilai) dengan benar
+    
+    5. Untuk pertanyaan tentang tren:
+       - Gunakan line chart
+       - Urutkan data berdasarkan waktu/urutan yang sesuai
+    
+    Contoh penggunaan untuk kasus spesifik:
+    
+    1. Untuk visualisasi gaji tertinggi/terendah:
     {
         "type": "visualization",
-        "chart_type": "bar",
-        "title": "3 Data Tertinggi",
-        "x_column": "nama",
-        "y_column": "nilai",
+        "chart_type": "pie",
+        "title": "Distribusi Gaji Tertinggi dan Terendah",
+        "value_column": "gaji",
+        "names_column": "nama",
         "filter": {
             "limit": {
                 "type": "top",
-                "value": 3,
-                "sort_column": "nilai"
+                "value": 5,
+                "sort_column": "gaji"
             }
         }
     }
     
-    Untuk visualisasi peta, gunakan format:
+    2. Untuk visualisasi distribusi umur:
     {
         "type": "visualization",
-        "chart_type": "map",
-        "title": "Judul Peta",
-        "description": "Deskripsi detail",
-        "latitude_column": "latitude",
-        "longitude_column": "longitude"
-    }
-    
-    Available filter operations:
-    - Numeric comparisons: >, >=, <, <=, ==, !=
-    - Text operations: contains, starts_with, ends_with
-    - List operation: in (value should be a list)
-    
-    For map visualizations, use:
-    {
-        "type": "visualization",
-        "chart_type": "map",
-        "title": "Map Title",
-        "description": "Detailed description",
-        "latitude_column": "latitude",
-        "longitude_column": "longitude",
+        "chart_type": "line",
+        "title": "Distribusi Umur Pegawai",
+        "x_column": "nama",
+        "y_column": "umur",
         "filter": {
-            "conditions": [
-                {
-                    "column": "column_name",
-                    "operation": "operation",
-                    "value": value
-                }
-            ],
             "limit": {
-                "type": "top|bottom",
-                "value": jumlah_data,
-                "sort_column": "nama_kolom"
+                "type": "both",
+                "value": 10,
+                "sort_column": "umur"
             }
         }
     }
-    Untuk visualisasi peta, gunakan format yang sama dengan penambahan:
+    
+    3. Untuk visualisasi jumlah pegawai per departemen:
     {
         "type": "visualization",
-        "chart_type": "map",
-        "title": "Judul Peta",
-        "description": "Deskripsi detail",
-        "latitude_column": "latitude",
-        "longitude_column": "longitude"
+        "chart_type": "bar",
+        "title": "Jumlah Pegawai per Departemen",
+        "transform": {
+            "type": "group",
+            "by": ["nama_departemen"],
+            "agg_function": "count"
+        },
+        "x_column": "nama_departemen",
+        "y_column": "count"
     }
-    
-    Available filter operations:
-    - Numeric comparisons: >, >=, <, <=, ==, !=
-    - Text operations: contains, starts_with, ends_with
-    - List operation: in (value should be a list)
-    
-    Limit options:
-    - "type": "top" untuk N tertinggi
-    - "type": "bottom" untuk N terendah
-    - "value": jumlah data yang diinginkan
-    - "sort_column": kolom yang digunakan untuk pengurutan
-    
-    Pastikan semua kolom yang direferensikan ada dalam dataset.
     """
 
 # Fungsi untuk menganalisis permintaan pengguna menggunakan OpenAI Assistant
@@ -510,50 +592,57 @@ def create_visualization(df, viz_instructions):
     try:
         df_viz = df.copy()
         
-        # Terapkan filter jika ada
+        # Terapkan transformasi jika ada
+        if 'transform' in viz_instructions:
+            df_viz = transform_data(df_viz, viz_instructions['transform'])
+        
+        # Terapkan filter
         if 'filter' in viz_instructions:
-            # Cek dan terapkan conditions jika ada
             if viz_instructions['filter'].get('conditions'):
                 df_viz = create_enhanced_filter(df_viz, viz_instructions['filter'])
-            
-            # Terapkan limit jika ada, terlepas dari ada tidaknya conditions
             if viz_instructions['filter'].get('limit'):
                 df_viz = apply_limit_to_data(df_viz, viz_instructions['filter']['limit'])
         
         if df_viz.empty:
-            st.warning("Tidak ada data yang memenuhi kriteria filter")
+            st.warning("Tidak ada data yang memenuhi kriteria")
             return
-            
+        
         chart_type = viz_instructions['chart_type']
         title = viz_instructions.get('title', 'Visualisasi')
         
-        # Display filter summary if filters were applied
-        if 'filter' in viz_instructions:
-            st.subheader("Applied Filters:")
-            # Tampilkan conditions jika ada
-            if viz_instructions['filter'].get('conditions'):
-                for condition in viz_instructions['filter']['conditions']:
-                    st.write(f"- {condition['column']} {condition['operation']} {condition['value']}")
+        # Handle agregasi jika diperlukan
+        if 'aggregation' in viz_instructions:
+            agg_config = viz_instructions['aggregation']
+            agg_type = agg_config.get('type')
+            agg_column = agg_config.get('column')
             
-            # Tampilkan limit jika ada
-            if viz_instructions['filter'].get('limit'):
-                limit = viz_instructions['filter']['limit']
-                st.write(f"- Showing {limit['value']} {limit['type']} records sorted by {limit['sort_column']}")
+            if agg_type and agg_column:
+                if agg_type == 'count':
+                    df_viz = df_viz.groupby(agg_column).size().reset_index(name='count')
+                else:
+                    df_viz = df_viz.groupby(agg_column).agg({agg_column: agg_type}).reset_index()
         
-        if chart_type == 'map':
-            map_chart = create_map_visualization(df_viz, viz_instructions)
-            if map_chart:
-                st.pydeck_chart(map_chart)
-        
+        # Buat visualisasi sesuai tipe
+        if chart_type == 'histogram':
+            value_column = viz_instructions.get('value_column')
+            bins = viz_instructions.get('bins', 30)
+            
+            if not value_column or value_column not in df_viz.columns:
+                st.error("Kolom untuk histogram tidak ditemukan")
+                return
+                
+            fig = px.histogram(df_viz, x=value_column, nbins=bins, title=title)
+            st.plotly_chart(fig, use_container_width=True)
+            
         elif chart_type in ['bar', 'line', 'scatter']:
             x_col = viz_instructions.get('x_column')
             y_col = viz_instructions.get('y_column')
             
             if not x_col or not y_col or x_col not in df_viz.columns or y_col not in df_viz.columns:
-                st.error(f"Kolom yang diperlukan tidak ditemukan: {x_col} atau {y_col}")
+                st.error("Kolom yang diperlukan tidak ditemukan")
                 return
                 
-            # Pastikan data numerik valid untuk sumbu y
+            # Konversi dan bersihkan data numerik
             df_viz[y_col] = pd.to_numeric(df_viz[y_col], errors='coerce')
             df_viz = df_viz.dropna(subset=[y_col])
             
@@ -563,19 +652,13 @@ def create_visualization(df, viz_instructions):
                 fig = px.line(df_viz, x=x_col, y=y_col, title=title)
             else:  # scatter
                 fig = px.scatter(df_viz, x=x_col, y=y_col, title=title)
-            
+                
             fig.update_layout(
                 title_x=0.5,
                 margin=dict(t=100),
                 xaxis_title=x_col,
                 yaxis_title=y_col
             )
-            
-            # Kustomisasi tampilan
-            # fig.update_traces(
-            #     texttemplate='%{text:.2f}',
-            #     textposition='outside'
-            # )
             
             st.plotly_chart(fig, use_container_width=True)
             
@@ -617,64 +700,127 @@ def create_visualization(df, viz_instructions):
 # Fungsi untuk membuat visualisasi peta menggunakan pydeck
 def create_map_visualization(df, viz_instructions):
     
-    # df = clean_and_prepare_data(df)
-    
     lat_column = viz_instructions.get('latitude_column', 'latitude')
     lon_column = viz_instructions.get('longitude_column', 'longitude')
+    kinerja_column = viz_instructions.get('kinerja_column', 'nilai_kinerja')
     
     if lat_column not in df.columns or lon_column not in df.columns:
-            st.error("Kolom latitude atau longitude tidak ditemukan")
-            return None
+        st.error("Kolom latitude atau longitude tidak ditemukan")
+        return None
+    
+    if kinerja_column not in df.columns:
+        st.error("Kolom nilai kinerja tidak ditemukan")
+        return None
             
-    # Konversi ke numerik dan bersihkan data
     df[lat_column] = pd.to_numeric(df[lat_column], errors='coerce')
     df[lon_column] = pd.to_numeric(df[lon_column], errors='coerce')
-    df = df.dropna(subset=[lat_column, lon_column])
+    df[kinerja_column] = pd.to_numeric(df[kinerja_column], errors='coerce')
+    df = df.dropna(subset=[lat_column, lon_column, kinerja_column])
     
     if df.empty:
         st.error("Tidak ada data valid untuk divisualisasikan.")
         return None
     
+    min_kinerja = df[kinerja_column].min()
+    max_kinerja = df[kinerja_column].max()
+    df['normalized_kinerja'] = (df[kinerja_column] - min_kinerja) / (max_kinerja - min_kinerja)
+    
+    # Definisikan batas nilai untuk kategorisasi kinerja
+    KINERJA_RANGES = {
+        'sangat_rendah': {'min': 0, 'max': 40, 'color': [255, 0, 0]},      # Merah
+        'rendah': {'min': 40, 'max': 60, 'color': [255, 165, 0]},          # Oranye
+        'sedang': {'min': 60, 'max': 75, 'color': [255, 255, 0]},          # Kuning
+        'tinggi': {'min': 75, 'max': 90, 'color': [173, 255, 47]},         # Hijau muda
+        'sangat_tinggi': {'min': 90, 'max': 600, 'color': [0, 255, 0]}     # Hijau
+    }
+    
+    # Fungsi untuk mendapatkan warna berdasarkan nilai kinerja
+    def get_color_by_value(value):
+        for category, range_info in KINERJA_RANGES.items():
+            if range_info['min'] <= value <= range_info['max']:
+                return range_info['color']
+        return [128, 128, 128] #abu-abu
+    
+    df['color'] = df[kinerja_column].apply(get_color_by_value)
+    df['elevation'] = df['normalized_kinerja'] * 100
+    
+    hexagon_data = df[[lon_column, lat_column, kinerja_column]].copy()
+    hexagon_data['weight'] = df['normalized_kinerja']
+    
     view_state = pdk.ViewState(
         latitude=df[lat_column].mean(),
         longitude=df[lon_column].mean(),
         zoom=11,
+        # min_zoom=5,
+        # max_zoom=15,
         pitch=50,
+        # bearing=-27.36,
     )
+    
+    # Membuat color range untuk HexagonLayer berdasarkan distribusi nilai kinerja
+    hexagon_color_range = [
+        [255, 0, 0],     # Merah untuk nilai rendah
+        [255, 255, 0],   # Kuning
+        [0, 255, 0],     # Hijau untuk nilai tingg
+    ]
     
     layer = [
-            pdk.Layer(
-                "HexagonLayer",
-                df,
-                get_position="[longitude, latitude]",
-                radius=1000,
-                elevation_scale=10,
-                elevation_range=[0, 3000],
-                pickable=True,
-                extruded=True,
-                auto_highlight=True,
-
-            ),
-            pdk.Layer(
-                "ScatterplotLayer",
-                df,
-                get_position='[longitude, latitude]',
-                get_color='[200, 30, 0, 160]',
-                elevation_scale=51,
-                get_radius=1000,
-                pickable=True,
-            )
-        ]
+        pdk.Layer(
+            "HexagonLayer",
+            data=df,
+            get_position=f"[{lon_column}, {lat_column}]",
+            auto_highlight=True,
+            elevation_scale=5,
+            elevation_range=[0, 300],
+            extruded=True,
+            coverage=1,
+            getElevationWeight=kinerja_column,
+            radius=200,
+            stroked=True,
+            # extruded=True,
+            # auto_highlight=True,
+            color_range=hexagon_color_range,
+            # colorScaleType="quantile",
+            # color_aggregation='mean',
+            # elevation_aggregation='mean',  # skala berdasarkan kuantil
+            get_weight='weight',
+            material={"material": True, "ambient": 0.64, "roughness": 0.85},
+            # # material=True,
+            # get_elevation='elevation',
+        ),
+        pdk.Layer(
+            "ScatterplotLayer",
+            df,
+            get_position='[longitude, latitude]',
+            get_color="color",
+            elevation_scale=10,
+            get_radius=50,
+            pickable=True,
+            opacity=0.8,
+            radiusScale=5,
+            radiusMinPixels=5,
+            radiusMaxPixels=100,
+        )
+    ]
+    
+    tooltip_html = """
+        <div style="background-color: steelblue; color: white; padding: 10px; border-radius: 5px;">
+            <b>Nama:</b> {nama}<br>
+            <b>Alamat:</b> {alamat}<br>
+            <b>Jabatan:</b> {nama_jabatan}<br>
+            <b>Departemen:</b> {nama_departemen}<br>
+            <b>Nilai Kinerja:</b> {nilai_kinerja}<br>
+            <b>Jumlah Pekerjaan:</b> {jumlah_proyek}
+        </div>
+    """
     
     return pdk.Deck(
-        layers=[layer],
+        layers=layer,
         initial_view_state=view_state,
-        map_style='mapbox://styles/mapbox/light-v9',
-        tooltip={
-                "html": "<b>Nama:</b> {name}<br><b>Alamat:</b> {alamat}<br><b>Jabatan:</b> {nama_jabatan}<br><b>Departemen:</b> {nama_departemen}<br><b>Jumlah Pekerjaan:</b> {jumlah_proyek}",
-                "style": {"backgroundColor": "steelblue", "color": "white"}
-            },
+        tooltip={"html": tooltip_html},
+        map_style="mapbox://styles/mapbox/satellite-v9"
     )
+
 
 st.set_page_config(layout="wide")
 st.title("AI-Powered Data Analysis and Visualization")
