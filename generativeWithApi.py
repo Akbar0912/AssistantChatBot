@@ -727,11 +727,11 @@ def create_map_visualization(df, viz_instructions):
     
     # Definisikan batas nilai untuk kategorisasi kinerja
     KINERJA_RANGES = {
-        'sangat_rendah': {'min': 0, 'max': 40, 'color': [255, 0, 0]},      # Merah
-        'rendah': {'min': 40, 'max': 60, 'color': [255, 165, 0]},          # Oranye
-        'sedang': {'min': 60, 'max': 75, 'color': [255, 255, 0]},          # Kuning
-        'tinggi': {'min': 75, 'max': 90, 'color': [173, 255, 47]},         # Hijau muda
-        'sangat_tinggi': {'min': 90, 'max': 600, 'color': [0, 255, 0]}     # Hijau
+        'sangat_rendah': {'min': 0, 'max': 50, 'color': [255, 0, 0]},      # Merah
+        'rendah': {'min': 55, 'max': 60, 'color': [255, 165, 0]},          # Oranye
+        'sedang': {'min': 60, 'max': 100, 'color': [255, 255, 0]},          # Kuning
+        'tinggi': {'min': 100, 'max': 200, 'color': [173, 255, 47]},         # Hijau muda
+        'sangat_tinggi': {'min': 200, 'max': 600, 'color': [0, 255, 0]}     # Hijau
     }
     
     # Fungsi untuk mendapatkan warna berdasarkan nilai kinerja
@@ -751,18 +751,10 @@ def create_map_visualization(df, viz_instructions):
         latitude=df[lat_column].mean(),
         longitude=df[lon_column].mean(),
         zoom=11,
-        # min_zoom=5,
-        # max_zoom=15,
-        pitch=50,
+        max_zoom=15,
+        pitch=30,
         # bearing=-27.36,
     )
-    
-    # Membuat color range untuk HexagonLayer berdasarkan distribusi nilai kinerja
-    hexagon_color_range = [
-        [255, 0, 0],     # Merah untuk nilai rendah
-        [255, 255, 0],   # Kuning
-        [0, 255, 0],     # Hijau untuk nilai tingg
-    ]
     
     layer = [
         pdk.Layer(
@@ -771,22 +763,18 @@ def create_map_visualization(df, viz_instructions):
             get_position=f"[{lon_column}, {lat_column}]",
             auto_highlight=True,
             elevation_scale=5,
-            elevation_range=[0, 300],
+            elevation_range=[0, 3000],
+            get_color_weight=kinerja_column,
+            color_aggregation="mean",
             extruded=True,
             coverage=1,
-            getElevationWeight=kinerja_column,
+            get_elevation_weight=kinerja_column,
             radius=200,
             stroked=True,
-            # extruded=True,
-            # auto_highlight=True,
-            color_range=hexagon_color_range,
-            # colorScaleType="quantile",
-            # color_aggregation='mean',
-            # elevation_aggregation='mean',  # skala berdasarkan kuantil
-            get_weight='weight',
+            colorRange= [[255, 0, 0], [255, 165, 0], [255, 255, 0], [173, 255, 47], [240, 59, 32], [0, 255,0 ,255]],
+            colorScaleType="quantile",
             material={"material": True, "ambient": 0.64, "roughness": 0.85},
-            # # material=True,
-            # get_elevation='elevation',
+            
         ),
         pdk.Layer(
             "ScatterplotLayer",
@@ -818,7 +806,7 @@ def create_map_visualization(df, viz_instructions):
         layers=layer,
         initial_view_state=view_state,
         tooltip={"html": tooltip_html},
-        map_style="mapbox://styles/mapbox/satellite-v9"
+        map_style="mapbox://styles/mapbox/streets-v11"
     )
 
 
