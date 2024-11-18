@@ -823,25 +823,26 @@ if data is not None:
     st.header("Visualization")
     viz_query = st.text_input("Describe the visualization you want:")
     if viz_query:
-        try:
-            ai_response = json.loads(analyze_user_request(data, viz_query))
-            if ai_response['type'] == 'visualization':
-                st.write("Visualization Instructions:")
-                st.json(ai_response)    
-                if ai_response['chart_type'] =='map':
-                    map_chart = create_map_visualization(data, ai_response)
-                    if map_chart:
-                        st.pydeck_chart(map_chart)
+        if st.button("Generate"):
+            try:
+                ai_response = json.loads(analyze_user_request(data, viz_query))
+                if ai_response['type'] == 'visualization':
+                    st.write("Visualization Instructions:")
+                    st.json(ai_response)    
+                    if ai_response['chart_type'] =='map':
+                        map_chart = create_map_visualization(data, ai_response)
+                        if map_chart:
+                            st.pydeck_chart(map_chart)
+                        else:
+                            st.error("Tidak dapat membuat visualisasi")
                     else:
-                        st.error("Tidak dapat membuat visualisasi")
+                        create_visualization(data, ai_response)
+                    # st.write(ai_response['description'])
                 else:
-                    create_visualization(data, ai_response)
-                # st.write(ai_response['description'])
-            else:
-                st.write("AI Response:")
-                st.write(ai_response['answer'])
-        except Exception as e:
-            st.error(f"Terjadi kesalahan: {str(e)}")
+                    st.write("AI Response:")
+                    st.write(ai_response['answer'])
+            except Exception as e:
+                st.error(f"Terjadi kesalahan: {str(e)}")
 
     st.header("Ask a Question")
     user_question = st.text_input("Ask your question:")
