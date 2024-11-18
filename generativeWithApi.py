@@ -840,7 +840,7 @@ if data is not None:
                     # st.write(ai_response['description'])
                 else:
                     st.write("AI Response:")
-                    st.write(ai_response['answer'])
+                    # st.write(ai_response['answer'])
             except Exception as e:
                 st.error(f"Terjadi kesalahan: {str(e)}")
 
