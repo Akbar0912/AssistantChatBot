@@ -1,9 +1,13 @@
 # AssistantChatBot
 
+build with :
+- Python
+- laravel
+
 Step install project
 1. Create Virtual Environment
-    "python -m venv myenv"
-    "source myenv/bin/activate" or "myenv\scripts\activate"
+    - ''' python -m venv myenv '''
+    - ''' source myenv/bin/activate" or "myenv\scripts\activate '''
 
 2. install requirements
     - pip install python-dotenv
