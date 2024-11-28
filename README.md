@@ -23,8 +23,12 @@ Step install project
     - pip install requests
 
 4. running program in terminal
-    - "myenv\scripts\activate"
-    - "streamlit run generativeWithApi.py"
+   ```
+   myenv\scripts\activate
+   ```
+   ```
+   streamlit run generativeWithApi.py
+   ```
 
 5. don't forget running API
 
