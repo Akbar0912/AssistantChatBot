@@ -411,6 +411,23 @@ def get_improved_system_message():
         "x_column": "nama_departemen",
         "y_column": "count"
     }
+    
+    Untuk pertanyaan tentang lokasi:
+    {
+        "type": "visualization",
+        "chart_type": "map",
+        "title": "Visualisasi Lokasi Pegawai",
+        "latitude_column": "latitude",
+        "longitude_column": "longitude",
+        "names_column": "nama_kolom",
+        "filter": {
+            "limit": {
+                "type": "top",
+                "value": 1,
+                "sort_column": "nama_kolom"
+            }
+        }
+    }
     """
 
 # Fungsi untuk menganalisis permintaan pengguna menggunakan OpenAI Assistant
@@ -428,6 +445,8 @@ def analyze_user_request(df, user_query):
         )
         
         result = response.choices[0].message.content
+        
+        print("Result (raw response):", result)
         
         # Validasi hasil JSON
         try:
@@ -688,15 +707,6 @@ def create_visualization(df, viz_instructions):
         st.error(f"Error dalam pembuatan visualisasi: {str(e)}")
 
 
-# def clean_and_prepare_data(df):
-#     # Konversi latitude dan longitude ke float, ganti nilai null dengan NaN
-#     df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
-#     df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
-    
-#     # Hapus baris dengan nilai NaN di latitude atau longitude
-#     df = df.dropna(subset=['latitude', 'longitude'])
-    
-#     return df
 # Fungsi untuk membuat visualisasi peta menggunakan pydeck
 def create_map_visualization(df, viz_instructions):
     
@@ -717,35 +727,90 @@ def create_map_visualization(df, viz_instructions):
     df[kinerja_column] = pd.to_numeric(df[kinerja_column], errors='coerce')
     df = df.dropna(subset=[lat_column, lon_column, kinerja_column])
     
+    # Apply filtering if specified in visualization instructions
+    if 'filter' in viz_instructions:
+        filter_config = viz_instructions['filter']
+        if 'limit' in filter_config:
+            limit_config = filter_config['limit']
+            if limit_config['type'] == 'top':
+                # Get top N performers
+                n = limit_config.get('value', 1)
+                df = df.nlargest(n, kinerja_column)
+                # Adjust view state to focus on filtered data
+                initial_zoom = 13 if n == 1 else 11
+            elif limit_config['type'] == 'bottom':
+                n = limit_config.get('value', 1)
+                df = df.nsmallest(n, kinerja_column)
+                initial_zoom = 13 if n == 1 else 11
+    else:
+        initial_zoom = 11
+    
     if df.empty:
         st.error("Tidak ada data valid untuk divisualisasikan.")
         return None
     
-    min_kinerja = df[kinerja_column].min()
-    max_kinerja = df[kinerja_column].max()
-    df['normalized_kinerja'] = (df[kinerja_column] - min_kinerja) / (max_kinerja - min_kinerja)
-    
     # Definisikan batas nilai untuk kategorisasi kinerja
-    KINERJA_RANGES = {
-        'sangat_rendah': {'min': 0, 'max': 50, 'color': [255, 0, 0]},      # Merah
-        'rendah': {'min': 55, 'max': 60, 'color': [255, 165, 0]},          # Oranye
-        'sedang': {'min': 60, 'max': 100, 'color': [255, 255, 0]},          # Kuning
-        'tinggi': {'min': 100, 'max': 200, 'color': [173, 255, 47]},         # Hijau muda
-        'sangat_tinggi': {'min': 200, 'max': 600, 'color': [0, 255, 0]}     # Hijau
-    }
+    COLOR_RANGES = [
+        {'min': 0, 'max': 350, 'color': [255, 0, 0, 255]},      # Merah untuk 0-249
+        {'min': 351, 'max': 599, 'color': [255, 255, 0, 255]},  # Kuning untuk 401-500
+        {'min': 600, 'max': 1000, 'color': [0, 255, 0, 255]}    # Hijau untuk 501-1000
+    ]
     
-    # Fungsi untuk mendapatkan warna berdasarkan nilai kinerja
+    # # Fungsi untuk mendapatkan warna berdasarkan nilai kinerja
     def get_color_by_value(value):
-        for category, range_info in KINERJA_RANGES.items():
+        for range_info in COLOR_RANGES:
             if range_info['min'] <= value <= range_info['max']:
                 return range_info['color']
-        return [128, 128, 128] #abu-abu
+        return [128, 128, 128, 255]  # Default abu-abu jika di luar rentang
     
     df['color'] = df[kinerja_column].apply(get_color_by_value)
-    df['elevation'] = df['normalized_kinerja'] * 100
     
-    hexagon_data = df[[lon_column, lat_column, kinerja_column]].copy()
-    hexagon_data['weight'] = df['normalized_kinerja']
+    # Buat array warna untuk colorRange HexagonLayer
+    color_domain = [0, 800, 900, 1000]  # Definisi batas-batas nilai
+    color_range = [
+        [255, 0, 0, 255],    # Merah
+        [255, 255, 0, 255],  # Kuning
+        [0, 255, 0, 255],    # Hijau
+    ]
+    
+    # Fungsi debugging untuk mengecek warna
+    # def debug_color(value):
+    #     color = get_color_by_value(value)
+    #     print(f"\nDebugging warna untuk nilai {value}:")
+    #     print(f"Warna yang dihasilkan: {color}")
+        
+    #     # Cek masuk ke rentang mana
+    #     for range_info in COLOR_RANGES:
+    #         if range_info['min'] <= value <= range_info['max']:
+    #             print(f"Masuk ke rentang: {range_info['min']} - {range_info['max']}")
+    #             print(f"Seharusnya mendapat warna: {range_info['color']}")
+    #             break
+    #     else:
+    #         print("Nilai di luar semua rentang yang didefinisikan!")
+        
+    #     # Cek posisi di color_domain
+    #     for i in range(len(color_domain)-1):
+    #         if color_domain[i] <= value <= color_domain[i+1]:
+    #             print(f"Posisi di color_domain: antara index {i} ({color_domain[i]}) dan {i+1} ({color_domain[i+1]})")
+    #             print(f"Menggunakan warna dari color_range: {color_range[i]} ke {color_range[i+1]}")
+    #             break
+    #     return color
+    
+    # # Lakukan debugging untuk nilai n
+    # test_value = 400
+    # debug_color(test_value)
+    
+    df['hover_info'] = df.apply(lambda row: {
+        'nama': str(row.get('nama', 'Tidak tersedia')),
+        'alamat': str(row.get('alamat', 'Tidak tersedia')),
+        'nama_jabatan': str(row.get('nama_jabatan', 'Tidak tersedia')),
+        'nama_departemen': str(row.get('nama_departemen', 'Tidak tersedia')),
+        'nilai_kinerja': str(row.get('nilai_kinerja', 'Tidak tersedia')),
+        'jumlah_proyek': str(row.get('jumlah_proyek', 'Tidak tersedia'))
+    }, axis=1)
+    
+    print("Hover Info Sample:")
+    print(df['hover_info'])
     
     view_state = pdk.ViewState(
         latitude=df[lat_column].mean(),
@@ -753,7 +818,6 @@ def create_map_visualization(df, viz_instructions):
         zoom=11,
         max_zoom=15,
         pitch=30,
-        # bearing=-27.36,
     )
     
     layer = [
@@ -762,19 +826,17 @@ def create_map_visualization(df, viz_instructions):
             data=df,
             get_position=f"[{lon_column}, {lat_column}]",
             auto_highlight=True,
-            elevation_scale=5,
-            elevation_range=[0, 3000],
-            get_color_weight=kinerja_column,
-            color_aggregation="mean",
+            elevation_scale=2,
+            elevation_range=[0, 2000],
+            get_color_weight=f"{kinerja_column}",
             extruded=True,
-            coverage=1,
-            get_elevation_weight=kinerja_column,
-            radius=200,
+            coverage=2, 
+            get_elevation_weight=f"{kinerja_column}",
+            radius=500,
             stroked=True,
-            colorRange= [[255, 0, 0], [255, 165, 0], [255, 255, 0], [173, 255, 47], [240, 59, 32], [0, 255,0 ,255]],
-            colorScaleType="quantile",
+            colorRange=color_range,
+            colorDomain=color_domain,
             material={"material": True, "ambient": 0.64, "roughness": 0.85},
-            
         ),
         pdk.Layer(
             "ScatterplotLayer",
@@ -782,7 +844,7 @@ def create_map_visualization(df, viz_instructions):
             get_position='[longitude, latitude]',
             get_color="color",
             elevation_scale=10,
-            get_radius=50,
+            get_radius=100,
             pickable=True,
             opacity=0.8,
             radiusScale=5,
@@ -790,6 +852,24 @@ def create_map_visualization(df, viz_instructions):
             radiusMaxPixels=100,
         )
     ]
+    
+    # Add text layer for labels if showing top performers
+    if len(df) <= 5:  # Only show labels for small number of points
+        layer.append(
+            pdk.Layer(
+                "TextLayer",
+                df,
+                get_position=f"[{lon_column}, {lat_column}]",
+                get_text="nama",
+                get_size=16,
+                get_color=[0, 0, 0, 255],
+                get_angle=0,
+                text_anchor="middle",
+                text_baseline="bottom",
+                pick_enable=False,
+                offset=[0, -20]
+            )
+        )
     
     tooltip_html = """
         <div style="background-color: steelblue; color: white; padding: 10px; border-radius: 5px;">
@@ -806,8 +886,17 @@ def create_map_visualization(df, viz_instructions):
         layers=layer,
         initial_view_state=view_state,
         tooltip={"html": tooltip_html},
-        map_style="mapbox://styles/mapbox/streets-v11"
+        # map_style="mapbox://styles/mapbox/streets-v11"
+        map_style="mapbox://styles/mapbox/light-v9"
     )
+    
+    # if len(df) == 1:
+    #     st.markdown(f"### Menampilkan lokasi pegawai dengan nilai kinerja tertinggi:")
+    #     st.markdown(f"**Nama:** {df.iloc[0]['nama']}")
+    #     st.markdown(f"**Nilai Kinerja:** {df.iloc[0]['nilai_kinerja']}")
+    #     st.markdown(f"**Departemen:** {df.iloc[0]['nama_departemen']}")
+    
+    # return deck
 
 
 st.set_page_config(layout="wide")
@@ -822,8 +911,8 @@ if data is not None:
 
     st.header("Visualization")
     viz_query = st.text_input("Describe the visualization you want:")
-    if viz_query:
-        if st.button("Generate"):
+    if st.button("Generate"):
+        if viz_query:
             try:
                 ai_response = json.loads(analyze_user_request(data, viz_query))
                 if ai_response['type'] == 'visualization':
