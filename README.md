@@ -10,7 +10,7 @@ Step install project
     python -m venv myenv
    ```
    ```
-    source myenv/bin/activate" or "myenv\scripts\activate
+    "source myenv/bin/activate" or "myenv\scripts\activate"
    ```
 
 3. install requirements
