@@ -22,7 +22,7 @@ class HuggingFaceAssistant:
             # Load tokenizer and model
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name, 
-                token="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"
+                token="secret"
             )
             
             # Use pipeline for easier text generation
