@@ -371,8 +371,8 @@ def get_improved_system_message():
         "type": "visualization",
         "chart_type": "pie",
         "title": "Distribusi Gaji Tertinggi dan Terendah",
-        "value_column": "gaji",
-        "names_column": "nama",
+        "value_column": "nama_kolom",
+        "names_column": "nama_kolom",
         "filter": {
             "limit": {
                 "type": "top",
@@ -387,8 +387,8 @@ def get_improved_system_message():
         "type": "visualization",
         "chart_type": "line",
         "title": "Distribusi Umur Pegawai",
-        "x_column": "nama",
-        "y_column": "umur",
+        "x_column": "nama_kolom",
+        "y_column": "nama_kolom",
         "filter": {
             "limit": {
                 "type": "both",
