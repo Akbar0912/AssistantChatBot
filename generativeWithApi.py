@@ -773,33 +773,6 @@ def create_map_visualization(df, viz_instructions):
         [0, 255, 0, 255],    # Hijau
     ]
     
-    # Fungsi debugging untuk mengecek warna
-    # def debug_color(value):
-    #     color = get_color_by_value(value)
-    #     print(f"\nDebugging warna untuk nilai {value}:")
-    #     print(f"Warna yang dihasilkan: {color}")
-        
-    #     # Cek masuk ke rentang mana
-    #     for range_info in COLOR_RANGES:
-    #         if range_info['min'] <= value <= range_info['max']:
-    #             print(f"Masuk ke rentang: {range_info['min']} - {range_info['max']}")
-    #             print(f"Seharusnya mendapat warna: {range_info['color']}")
-    #             break
-    #     else:
-    #         print("Nilai di luar semua rentang yang didefinisikan!")
-        
-    #     # Cek posisi di color_domain
-    #     for i in range(len(color_domain)-1):
-    #         if color_domain[i] <= value <= color_domain[i+1]:
-    #             print(f"Posisi di color_domain: antara index {i} ({color_domain[i]}) dan {i+1} ({color_domain[i+1]})")
-    #             print(f"Menggunakan warna dari color_range: {color_range[i]} ke {color_range[i+1]}")
-    #             break
-    #     return color
-    
-    # # Lakukan debugging untuk nilai n
-    # test_value = 400
-    # debug_color(test_value)
-    
     df['hover_info'] = df.apply(lambda row: {
         'nama': str(row.get('nama', 'Tidak tersedia')),
         'alamat': str(row.get('alamat', 'Tidak tersedia')),
@@ -853,7 +826,6 @@ def create_map_visualization(df, viz_instructions):
         )
     ]
     
-    # Add text layer for labels if showing top performers
     if len(df) <= 5:  # Only show labels for small number of points
         layer.append(
             pdk.Layer(
@@ -889,14 +861,6 @@ def create_map_visualization(df, viz_instructions):
         # map_style="mapbox://styles/mapbox/streets-v11"
         map_style="mapbox://styles/mapbox/light-v9"
     )
-    
-    # if len(df) == 1:
-    #     st.markdown(f"### Menampilkan lokasi pegawai dengan nilai kinerja tertinggi:")
-    #     st.markdown(f"**Nama:** {df.iloc[0]['nama']}")
-    #     st.markdown(f"**Nilai Kinerja:** {df.iloc[0]['nilai_kinerja']}")
-    #     st.markdown(f"**Departemen:** {df.iloc[0]['nama_departemen']}")
-    
-    # return deck
 
 
 st.set_page_config(layout="wide")
