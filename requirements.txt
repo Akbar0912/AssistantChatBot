@@ -5,3 +5,4 @@ langchain_community
 pandas
 pydeck
 plotly
+langchain-ollama

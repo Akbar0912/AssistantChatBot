@@ -43,96 +43,285 @@ def parse_visualization_instruction(text):
         # Trim any leading/trailing whitespace
         text = text.strip()
         
-        # Check if text starts with { and ends with }
-        if not (text.startswith('{') and text.endswith('}')):
-            # Try to extract JSON from between first { and last }
-            start = text.find('{')
-            end = text.rfind('}')
-            if start != -1 and end != -1:
-                text = text[start:end+1]
+        # Proses untuk mengekstrak JSON dengan lebih robust
+        start = text.find('{')
+        end = text.rfind('}')
         
-        # Parse JSON from output text
+        if start == -1 or end == -1:
+            st.error("Tidak dapat menemukan struktur JSON yang valid")
+            return None
+        
+        text = text[start:end+1]
+        
+        # Parse JSON dari teks
         parsed_json = json.loads(text)
         
+        # Validasi struktur JSON
+        if not isinstance(parsed_json, dict) or 'type' not in parsed_json:
+            st.error("Struktur JSON tidak sesuai format yang diharapkan")
+            return None
+        
         return parsed_json
+    
     except json.JSONDecodeError as e:
         st.error(f"Gagal parsing JSON: {e}")
         st.error(f"Raw text received: {text}")
         return None
+    except Exception as e:
+        st.error(f"Error umum dalam parsing: {e}")
+        return None
 
 # Advanced Visualization Functions with Plotly
-def create_dynamic_visualization(df, viz_instruction):
+def transform_data(df, transform_config):
     """
-    Create dynamic visualization using Plotly Express
+    Fungsi untuk melakukan transformasi data
     """
-    # Ensure column names are valid
-    x_column = viz_instruction.x_column
-    y_column = viz_instruction.y_column
-    title = viz_instruction.title
-
-    # Create Plotly visualizations
-    if viz_instruction.visualization_type == 'bar_chart':
-        fig = px.bar(
-            df, 
-            x=x_column, 
-            y=y_column, 
-            title=title,
-            labels={x_column: x_column.replace('_', ' ').title(), 
-                    y_column: y_column.replace('_', ' ').title()},
-            color=y_column,
-            color_continuous_scale='viridis'
-        )
-    
-    elif viz_instruction.visualization_type == 'scatter_plot':
-        # Check if there's a third column for color/size
-        color_column = viz_instruction.additional_instructions.get('color_column')
-        size_column = viz_instruction.additional_instructions.get('size_column')
+    try:
+        transform_type = transform_config.get('type')
         
-        fig = px.scatter(
-            df, 
-            x=x_column, 
-            y=y_column, 
-            title=title,
-            labels={x_column: x_column.replace('_', ' ').title(), 
-                    y_column: y_column.replace('_', ' ').title()},
-            color=color_column if color_column in df.columns else None,
-            size=size_column if size_column in df.columns else None,
-            hover_data=df.columns.tolist()
-        )
+        if transform_type == 'group':
+            # Agregasi data berdasarkan kolom
+            by_columns = transform_config.get('by', [])
+            agg_function = transform_config.get('agg_function', 'count')
+            
+            if agg_function == 'count':
+                df_transformed = df.groupby(by_columns).size().reset_index(name='count')
+            elif agg_function in ['sum', 'mean', 'max', 'min', 'median']:
+                df_transformed = df.groupby(by_columns).agg(
+                    {by_columns[-1]: agg_function}
+                ).reset_index()
+            
+            return df_transformed
+        
+        # Tambahkan jenis transformasi lain jika diperlukan
+        return df
     
-    elif viz_instruction.visualization_type == 'line_chart':
-        fig = px.line(
-            df, 
-            x=x_column, 
-            y=y_column, 
-            title=title,
-            labels={x_column: x_column.replace('_', ' ').title(), 
-                    y_column: y_column.replace('_', ' ').title()},
-            markers=True
-        )
+    except Exception as e:
+        st.error(f"Error dalam transformasi data: {e}")
+        return df
+
+def create_enhanced_filter(df, filter_config):
+    """ 
+    Fungsi untuk membuat filter yang lebih kompleks
+    """
+    try:
+        conditions = filter_config.get('conditions', [])
+        
+        for condition in conditions:
+            column = condition.get('column')
+            operation = condition.get('operation')
+            value = condition.get('value')
+            
+            if column and operation and value is not None:
+                if operation == '==':
+                    df = df[df[column] == value]
+                elif operation == '>':
+                    df = df[df[column] > value]
+                elif operation == '>=':
+                    df = df[df[column] >= value]
+                elif operation == '<':
+                    df = df[df[column] < value]
+                elif operation == '<=':
+                    df = df[df[column] <= value]
+                elif operation == 'contains':
+                    df = df[df[column].str.contains(str(value), case=False)]
+                elif operation == 'in':
+                    df = df[df[column].isin(value)]
+        
+        return df
     
-    elif viz_instruction.visualization_type == 'pie_chart':
-        fig = px.pie(
-            df, 
-            names=x_column, 
-            values=y_column, 
-            title=title
-        )
+    except Exception as e:
+        st.error(f"Error dalam filter data: {e}")
+        return df
+
+def apply_limit_to_data(df, limit_config):
+    """
+    Fungsi untuk membatasi dan mengurutkan data
+    """
+    try:
+        limit_type = limit_config.get('type')
+        limit_value = limit_config.get('value', 3)
+        sort_column = limit_config.get('sort_column')
+        
+        if sort_column and sort_column in df.columns:
+            # Konversi kolom ke numerik jika memungkinkan
+            df[sort_column] = pd.to_numeric(df[sort_column], errors='coerce')
+            
+            if limit_type == 'top':
+                df = df.sort_values(by=sort_column, ascending=False).head(limit_value)
+            elif limit_type == 'bottom':
+                df = df.sort_values(by=sort_column).head(limit_value)
+        
+        return df
     
-    # Additional styling
-    fig.update_layout(
-        height=600,
-        width=800,
-        template='plotly_white'
-    )
+    except Exception as e:
+        st.error(f"Error dalam pembatasan data: {e}")
+        return df
+
+def create_dynamic_visualization(df, viz_instructions):
+    """
+    Fungsi visualisasi yang ditingkatkan dengan penanganan filter yang lebih baik
+    """
+    try:
+        df_viz = df.copy()
+        
+        # Terapkan transformasi jika ada
+        if 'transform' in viz_instructions:
+            df_viz = transform_data(df_viz, viz_instructions['transform'])
+        
+        # Terapkan filter
+        if 'filter' in viz_instructions:
+            if viz_instructions['filter'].get('conditions'):
+                df_viz = create_enhanced_filter(df_viz, viz_instructions['filter'])
+            if viz_instructions['filter'].get('limit'):
+                df_viz = apply_limit_to_data(df_viz, viz_instructions['filter']['limit'])
+        
+        if df_viz.empty:
+            st.warning("Tidak ada data yang memenuhi kriteria")
+            return None
+        
+        chart_type = viz_instructions['chart_type']
+        title = viz_instructions.get('title', 'Visualisasi')
+        
+        # Handle agregasi jika diperlukan
+        if 'aggregation' in viz_instructions:
+            agg_config = viz_instructions['aggregation']
+            agg_type = agg_config.get('type')
+            agg_column = agg_config.get('column')
+            
+            if agg_type and agg_column:
+                if agg_type == 'count':
+                    df_viz = df_viz.groupby(agg_column).size().reset_index(name='count')
+                else:
+                    df_viz = df_viz.groupby(agg_column).agg({agg_column: agg_type}).reset_index()
+        
+        # Buat visualisasi sesuai tipe
+        if chart_type == 'histogram':
+            value_column = viz_instructions.get('value_column')
+            bins = viz_instructions.get('bins', 30)
+            
+            if not value_column or value_column not in df_viz.columns:
+                st.error("Kolom untuk histogram tidak ditemukan")
+                return None
+                
+            fig = px.histogram(df_viz, x=value_column, nbins=bins, title=title)
+            
+        elif chart_type in ['bar', 'line', 'scatter']:
+            x_col = viz_instructions.get('x_column')
+            y_col = viz_instructions.get('y_column')
+            
+            if not x_col or not y_col or x_col not in df_viz.columns or y_col not in df_viz.columns:
+                st.error("Kolom yang diperlukan tidak ditemukan")
+                return None
+                
+            # Konversi dan bersihkan data numerik
+            df_viz[y_col] = pd.to_numeric(df_viz[y_col], errors='coerce')
+            df_viz = df_viz.dropna(subset=[y_col])
+            
+            # Urutkan data untuk visualisasi yang lebih baik
+            df_viz = df_viz.sort_values(by=y_col, ascending=False)
+            
+            if chart_type == 'bar':
+                fig = px.bar(
+                    df_viz, 
+                    x=x_col, 
+                    y=y_col, 
+                    title=title,
+                    color=y_col,  # Warna berdasarkan nilai
+                    color_continuous_scale='Viridis'
+                )
+                # Tambahkan label pada bar
+                fig.update_traces(texttemplate='%{y}', textposition='outside')
+            elif chart_type == 'line':
+                fig = px.line(df_viz, x=x_col, y=y_col, title=title)
+            else:  # scatter
+                fig = px.scatter(df_viz, x=x_col, y=y_col, title=title)
+                
+            fig.update_layout(
+                title_x=0.5,
+                margin=dict(t=100),
+                xaxis_title=x_col,
+                yaxis_title=y_col,
+                xaxis_tickangle=-45  # Putar label sumbu x
+            )
+            
+        elif chart_type == 'pie':
+            # Lebih fleksibel dalam menentukan kolom
+            names_column = viz_instructions.get('names_column')
+            value_column = viz_instructions.get('value_column')
+            
+            # Jika names_column belum tepat, lakukan deteksi
+            if not names_column:
+                categorical_columns = df.select_dtypes(include=['object', 'category']).columns
+                if categorical_columns.size > 0:
+                    names_column = categorical_columns[0]
+            
+            # Jika value_column belum tepat, gunakan default
+            if not value_column:
+                # Pilih kolom numerik atau gunakan count
+                numeric_columns = df.select_dtypes(include=['int64', 'float64']).columns
+                if numeric_columns.size > 0:
+                    value_column = numeric_columns[0]
+                else:
+                    # Transformasi default menggunakan count
+                    df_viz = df_viz.groupby(names_column).size().reset_index(name='count')
+                    names_column = names_column
+                    value_column = 'count'
+            else:
+                # Transformasi sesuai instruksi
+                transform_config = viz_instructions.get('transform', {
+                    "type": "group", 
+                    "by": [names_column], 
+                    "agg_function": "count"
+                })
+                
+                # Terapkan transformasi
+                if transform_config['type'] == 'group':
+                    agg_func = transform_config.get('agg_function', 'count')
+                    
+                    if agg_func == 'count':
+                        df_viz = df_viz.groupby(names_column).size().reset_index(name='count')
+                        value_column = 'count'
+                    else:
+                        # Agregasi berdasarkan fungsi yang ditentukan
+                        df_viz = df_viz.groupby(names_column).agg({value_column: agg_func}).reset_index()
+            
+            # Validasi kolom
+            if names_column not in df_viz.columns or value_column not in df_viz.columns:
+                st.error(f"Kolom nama {names_column} atau value {value_column} tidak ditemukan")
+                return None
+            
+            # Buat pie chart
+            fig = px.pie(
+                df_viz, 
+                values=value_column, 
+                names=names_column, 
+                title=viz_instructions.get('title', 'Distribusi Data'),
+                hole=0.3
+            )
+            
+            fig.update_traces(
+                texttemplate='%{label}<br>%{value} (%{percent})', 
+                textposition='inside'
+            )
+            
+            return fig
+        else:
+            st.error(f"Tipe chart {chart_type} tidak didukung")
+            return None
+        
+        return fig
     
-    return fig
+    except Exception as e:
+        st.error(f"Error dalam pembuatan visualisasi: {str(e)}")
+        return None
 
 def create_map_visualization(df, viz_instructions):
     
     lat_column = viz_instructions.get('latitude_column', 'latitude')
     lon_column = viz_instructions.get('longitude_column', 'longitude')
     kinerja_column = viz_instructions.get('kinerja_column', 'nilai_kinerja')
+    names_column = viz_instructions.get('names_column', 'nama')
     
     if lat_column not in df.columns or lon_column not in df.columns:
         st.error("Kolom latitude atau longitude tidak ditemukan")
@@ -336,6 +525,9 @@ prompt = ChatPromptTemplate.from_messages(
             - Gunakan filter dengan limit
             - Tentukan sort_column yang relevan
             - Pilih chart_type yang sesuai (bar untuk perbandingan, pie untuk proporsi)
+            - SELALU gunakan filter dengan limit untuk membatasi data
+            - Tentukan sort_column yang relevan
+            - Pastikan data diurutkan dari tertinggi/terendah sebelum divisualisasikan
             
             2. Untuk pertanyaan tentang distribusi:
             - Gunakan histogram untuk data numerik kontinyu
@@ -358,6 +550,22 @@ prompt = ChatPromptTemplate.from_messages(
             
         IMPORTANT: Always respond in strict JSON format:
         {{  
+            Contoh JSON yang baik untuk top 3 kinerja:
+            {{
+                "type": "visualization",
+                "chart_type": "bar",
+                "title": "Top 3 Kinerja Pegawai",
+                "x_column": "nama",
+                "y_column": "nilai_kinerja",
+                "filter": {{
+                    "limit": {{
+                        "type": "top",
+                        "value": 3,
+                        "sort_column": "nilai_kinerja"
+                    }}
+                }}
+            }}
+            
             1. Untuk visualisasi gaji tiap pegawai:
             {{
                 "type": "visualization",
@@ -429,6 +637,41 @@ prompt = ChatPromptTemplate.from_messages(
         ("human", "User Question: {question}")
 ])
 
+def generate_general_response(question):
+    """
+    Fungsi untuk menjawab pertanyaan umum menggunakan LLM
+    """
+    try:
+        # Konfigurasi LLM untuk pertanyaan umum
+        llm_general = ChatOllama(model="llama3.2-vision")
+        
+        # Template prompt untuk pertanyaan umum
+        general_prompt = ChatPromptTemplate.from_messages([
+            ("system", """
+            Kamu adalah asisten AI yang membantu menjawab pertanyaan dengan informatif dan ramah. 
+            Jawab pertanyaan secara komprehensif, jelas, dan sesuai konteks.
+            
+            Beberapa panduan:
+            - Berikan jawaban yang akurat dan dapat dimengerti
+            - Gunakan bahasa yang mudah dipahami
+            - Jika pertanyaan membutuhkan penjelasan teknis, sederhanakan
+            - Berikan konteks tambahan jika diperlukan
+            - Hindari jawaban yang bersifat spekulatif
+            """),
+            ("human", "Pertanyaan: {question}")
+        ])
+        
+        # Buat chain untuk menjawab pertanyaan
+        chain_general = general_prompt | llm_general | StrOutputParser()
+        
+        # Dapatkan respon
+        response = chain_general.invoke({"question": question})
+        
+        return response
+    except Exception as e:
+        st.error(f"Gagal menghasilkan jawaban umum: {e}")
+        return "Maaf, saya tidak dapat menjawab pertanyaan saat ini."
+
 def fallback_visualization(df, user_prompt):
     """Fallback visualization jika AI gagal membuat instruksi"""
     st.warning("Tidak dapat membuat visualisasi otomatis. Membuat visualisasi default.")
@@ -465,81 +708,79 @@ def main():
     
     # Fetch data
     df = fetch_data()
+    # st.dataframe(df)
     
     if df.empty:
         st.error("No data available. Please check your API connection.")
         return
+
+    st.header("Ajukan Pertanyaan")
     
-    # User Input
-    user_prompt = st.text_input("Ask a question about your data and get a visualization:")
+    # Input untuk pertanyaan umum dan data
+    question_type = st.radio(
+        "Pilih Jenis Pertanyaan", 
+        ["Pertanyaan Umum", "Pertanyaan Seputar Visualisasi Data"]
+    )
     
-    if st.button("Generate Visualization"):
-        with st.spinner("Generating Intelligent Visualization..."):
-            try:
-                # LLM Configuration
-                llm = ChatOllama(model="llama3.2-vision")
-                
-                # Create processing chain
-                chain = prompt | llm | StrOutputParser()
-                viz_instruction_str = chain.invoke({
-                    'columns': ', '.join(df.columns), 
-                    'question': user_prompt,
-                })
-                
-                # In your main function, before parsing
-                print("Raw LLM Response:", viz_instruction_str)
-                
+    user_prompt = st.text_input("Tulis pertanyaan Anda:")
+    
+    if st.button("Dapatkan Jawaban"):
+        with st.spinner("Memproses pertanyaan..."):
+            if question_type == "Pertanyaan Umum":
+                # Jawab pertanyaan umum
+                general_answer = generate_general_response(user_prompt)
+                st.write(general_answer)
+            else:
                 try:
-                    viz_instruction = parse_visualization_instruction(viz_instruction_str)
+                    # LLM Configuration
+                    llm = ChatOllama(model="llama3.2-vision")
                     
-                    if viz_instruction is None:
-                        fallback_visualization(df, user_prompt)
-                        return
-                
-                    # Cetak instruksi untuk debugging
-                    st.write("Visualization Instruction:", viz_instruction)
+                    # Create processing chain
+                    chain = prompt | llm | StrOutputParser()
+                    viz_instruction_str = chain.invoke({
+                        'columns': ', '.join(df.columns), 
+                        'question': user_prompt,
+                    })
                     
-                    # Proses visualisasi
-                    chart_type = viz_instruction.get('chart_type', 'bar')
+                    # In your main function, before parsing
+                    print("Raw LLM Response:", viz_instruction_str)
                     
-                    if chart_type in ['bar', 'scatter', 'line', 'pie']:
-                        # Sesuaikan mapping nama chart
-                        plotly_type = {
-                            'bar': 'bar_chart',
-                            'scatter': 'scatter_plot',
-                            'line': 'line_chart',
-                            'pie': 'pie_chart'
-                        }.get(chart_type, 'bar_chart')
+                    try:
+                        viz_instruction = parse_visualization_instruction(viz_instruction_str)
                         
-                        # Buat objek sederhana untuk visualisasi
-                        viz_obj = type('VizObj', (), {
-                            'visualization_type': plotly_type,
-                            'x_column': viz_instruction.get('x_column', df.columns[0]),
-                            'y_column': viz_instruction.get('y_column', df.columns[1] if len(df.columns) > 1 else df.columns[0]),
-                            'title': viz_instruction.get('title', 'Data Visualization'),
-                            'additional_instructions': viz_instruction.get('additional_instructions', {})
-                        })
+                        print("ini viz instruction", viz_instruction)
                         
-                        fig = create_dynamic_visualization(df, viz_obj)
-                        st.plotly_chart(fig, use_container_width=True)
+                        if viz_instruction is None:
+                            st.warning("Tidak dapat membuat instruksi visualisasi")
+                            return
                     
-                    elif chart_type == 'map':
-                        map_chart = create_map_visualization(df, viz_instruction)
-                        if map_chart:
-                            st.pydeck_chart(map_chart)
+                        # Cetak instruksi untuk debugging
+                        st.write("Visualization Instruction:", viz_instruction)
+                        
+                        if viz_instruction['chart_type'] == 'map':
+                            fig = create_map_visualization(df, viz_instruction)
+                            if fig:
+                                st.pydeck_chart(fig, use_container_width=True)
+                                
+                        # Proses visualisasi
+                        fig = create_dynamic_visualization(df, viz_instruction)
+                        
+                        if fig:
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Tampilkan deskripsi jika ada
+                            if 'description' in viz_instruction:
+                                st.markdown("### Analisis")
+                                st.write(viz_instruction['description'])
                         else:
-                            fallback_visualization(df, user_prompt)
+                            st.warning("Tidak dapat membuat visualisasi")
                     
-                    else:
+                    except Exception as e:
+                        st.warning(f"Gagal membuat visualisasi AI: {e}")
                         fallback_visualization(df, user_prompt)
                 
                 except Exception as e:
-                    st.warning(f"Gagal membuat visualisasi AI: {e}")
+                    st.error(f"Error umum: {e}")
                     fallback_visualization(df, user_prompt)
-            
-            except Exception as e:
-                st.error(f"Error umum: {e}")
-                fallback_visualization(df, user_prompt)
-
 if __name__ == "__main__":
     main()

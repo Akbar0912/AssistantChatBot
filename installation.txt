@@ -1,0 +1,47 @@
+# AssistantChatBot
+
+build with :
+- Python
+- laravel
+
+- download ollama model and install
+    ```
+    https://ollama.com/
+    ```
+    select model 
+    ``
+    https://github.com/ollama/ollama
+    ```
+
+Step install project
+1. Create Virtual Environment
+   ```
+    python -m venv myenv
+   ```
+   ```
+    "source myenv/bin/activate" or "myenv\scripts\activate"
+   ```
+
+3. install requirements
+    - pip install python-dotenv
+    - pip install openai
+    - pip install streamlit
+    - pip install pydeck
+    - pip install pandas
+    - pip install streamlit plotly 
+    - pip install requests
+    - pip install langchain_core
+    - pip install langchainhub
+    - pip install langchain-ollama
+    - pip install langchain_community 
+
+4. running program in terminal
+   ```
+   myenv\scripts\activate
+   ```
+   ```
+   streamlit run generativeWithApi.py
+   ```
+
+5. don't forget running API
+
