@@ -1,42 +1,36 @@
 import psycopg2
+from psycopg2.extensions import connection
 from typing import Optional
+import streamlit as st
+from config.posgresql import DatabaseConfig
 
 class DatabaseConnection:
-    def __init__(self, dbname: str, user: str, password: str, host: str, port: str):
-        self.dbname = dbname
-        self.user = user
-        self.password = password
-        self.host = host
-        self.port = port
-        self.conn: Optional[psycopg2.extensions.connection] = None
+    _instance = None
 
-    def connect(self) -> psycopg2.extensions.connection:
-        """Establish database connection"""
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        self.conn: Optional[connection] = None
+        self.config = DatabaseConfig()
+
+    def connect(self) -> Optional[connection]:
         try:
-            self.conn = psycopg2.connect(
-                dbname=self.dbname,
-                user=self.user,
-                password=self.password,
-                host=self.host,
-                port=self.port
-            )
+            if not self.conn or self.conn.closed:
+                self.conn = psycopg2.connect(
+                    dbname=self.config.dbname,
+                    user=self.config.user,
+                    password=self.config.password,
+                    host=self.config.host,
+                    port=self.config.port
+                )
             return self.conn
         except Exception as e:
-            raise ConnectionError(f"Failed to connect to database: {str(e)}")
+            st.error(f"Database connection error: {str(e)}")
+            return None
 
     def close(self):
-        """Close database connection"""
-        if self.conn:
+        if self.conn and not self.conn.closed:
             self.conn.close()
-
-    def execute_query(self, query: str) -> list:
-        """Execute SQL query and return results"""
-        if not self.conn:
-            self.connect()
-        
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query)
-                return cursor.fetchall()
-        except Exception as e:
-            raise Exception(f"Query execution failed: {str(e)}")
