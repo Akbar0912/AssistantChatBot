@@ -9,8 +9,12 @@ from langchain_community.utilities import SQLDatabase
 import re
 from dotenv import load_dotenv
 import pandas as pd
+from visualization import create_visualization, generate_viz_description
 
 load_dotenv()
+
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
 
 pwd = os.environ['DB_PASSWORD']
 uid = os.environ['DB_USER']
@@ -30,6 +34,7 @@ def get_detailed_schema():
     - Gunakan COUNT, GROUP BY, ORDER BY untuk hasil yang informatif
     - Tambahkan alias untuk nama kolom yang lebih jelas
     - Urutkan hasil untuk mempermudah pembacaan
+    - nama_pangkat = last_pangkat
     
     Database memiliki dua view utama:
 
@@ -39,12 +44,14 @@ def get_detailed_schema():
     - nama (varchar) - Nama lengkap personel
     - nrp (varchar) - Nomor registrasi personel
     - satuan (varchar) - Nama satuan kerja
-    - matra (varchar) - Matra (AD/AL/AU)
+    - matra (varchar) - Matra (AD/AL/AU/ASN) pangkat khusus
     - jabatan_terakhir_nama_jabatan (varchar) - Nama jabatan terakhir
     - last_pangkat (varchar) - Pangkat terakhir
+    - pendidikan_terakhir_nama_pendidikan (varchar) - tingkat pendidikan
     - pendidikan_terakhir_nama_sekolah (varchar) - Nama sekolah terakhir
     - pendidikan_terakhir_tahun_lulus (integer) - Tahun lulus
     - gaji_terakhir_gaji_pokok (numeric) - Gaji pokok terakhir
+    - tipe_pegawai (varchar) - jenis dari status pegawai
 
     2. public.vw_umur_personel
     Kolom-kolom:
@@ -53,7 +60,18 @@ def get_detailed_schema():
     - tgllahir (date) - Tanggal lahir
     - umur (integer) - Umur dalam tahun
     - nrp (varchar) - Nomor registrasi personel
-
+    
+    3. public.vw_pangkat_tunggal
+    kolom-kolom:
+    - nip_tunggal
+    - nama_tunggal = nama panggilan
+    - nourut
+    - nip = nomor registrasi personel
+    - nama = nama lengkap personel
+    - nama_pangkat = pangkat terakhir
+    - tmt_pangkat = tanggal penetapan pangkat
+    - nokep
+    
     Contoh Query Valid:
     1. Mencari personel berdasarkan satuan:
     SELECT nama, nrp, jabatan_terakhir_nama_jabatan, pangkat
@@ -69,6 +87,20 @@ def get_detailed_schema():
     SELECT nama, nrp, pangkat, satuan
     FROM public.vw_personel_analytic
     WHERE matra = 'AD'
+    
+    4. mencari berdasarkan tingkat pendidikan tampilkan kolom pendidikan_terakhir_nama_pendidikan, jumlah personel dan juga totalnya :
+    SELECT pendidikan_terakhir_nama_pendidikan AS "Tingkat Pendidikan", COUNT(personelid) AS "Jumlah Personel" 
+    FROM public.vw_personel_analytic GROUP BY pendidikan_terakhir_nama_pendidikan 
+    ORDER BY pendidikan_terakhir_nama_pendidikan
+    
+    4. mencari berdasarkan pendidikan dan pangkat untuk filter tertentu
+    SELECT pendidikan_terakhir_nama_pendidikan AS "Tingkat Pendidikan", 
+       last_pangkat AS "Pangkat", 
+       COUNT(personelid) AS "Jumlah Personel"
+    FROM public.vw_personel_analytic
+    WHERE matra = 'ASN' 
+    GROUP BY pendidikan_terakhir_nama_pendidikan, last_pangkat
+    ORDER BY "Tingkat Pendidikan" ASC, "Pangkat" DESC; 
     """
 
 def validate_sql_query(query: str) -> bool:
@@ -78,29 +110,99 @@ def validate_sql_query(query: str) -> bool:
     return any(query.startswith(keyword) for keyword in valid_starts)
 
 def clean_sql_query(query: str) -> str:
-    """Membersihkan query SQL dari potensi SQL injection"""
-    # Hapus backticks
-    cleaned = query.replace('`', '')
-    # Hapus kata 'sql' di awal query jika ada
+    """Membersihkan query SQL dari kata kunci dan karakter yang tidak diinginkan"""
+    # Convert ke lowercase untuk pengecekan
+    cleaned = query.strip().lower()
+    
     cleaned = re.sub(r'^sql\s+', '', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r';.*$', '', query)
+    cleaned = re.sub(r'\s+sql\s+', ' ', cleaned, flags=re.IGNORECASE)
+    
+    # Hapus kata 'sql' di awal query dengan lebih teliti
+    if cleaned.startswith('sql'):
+        cleaned = query[3:].strip()
+    else:
+        cleaned = query.strip()
+    
+    # Hapus backticks
+    cleaned = cleaned.replace('`', '')
+    
+    # Hapus semicolon dan komentar
+    cleaned = re.sub(r';.*$', '', cleaned)
     cleaned = re.sub(r'--.*$', '', cleaned, flags=re.MULTILINE)
     cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+    
+    # Hapus multiple spaces
     cleaned = ' '.join(cleaned.split())
+    
     return cleaned
 
 def validate_column_names(query: str) -> bool:
     """Validasi nama kolom dalam query"""
     valid_columns = {
         'vw_personel_analytic': [
-            'personelid', 'nama', 'nip_nrp', 'nrp', 'satuan', 'matra',
-            'jabatan_terakhir_nama_jabatan', 'pangkat',
-            'pendidikan_terakhir_nama_sekolah',
-            'pendidikan_terakhir_tahun_lulus',
-            'gaji_terakhir_gaji_pokok'
+            'tugas_dinas_terakhir_tanggal_selesai', 'pendidikan_terakhir_tugas_belajar', 'jabatan_terakhir_tanggal_kep', 
+            'tugas_dinas_terakhir_tanggal_sprin', 'dikmil_terakhir_no_urut', 'gaji_terakhir_gaji_pokok', 'tmt_dikma', 
+            'gaji_terakhir_bln_dibayar', 'jabatan_terakhir_tanggal_sprin', 'jabatan_terakhir_tmt_jabatan', 'last_tmt_pangkat', 
+            'tmt_dikmilti', 'gaji_terakhir_gaji_lama', 'dikmil_terakhir_tanggal_sk', 'dikmil_terakhir_tanggal_mulai', 
+            'tugas_operasi_terakhir_no_urut', 'dikmil_terakhir_tanggal_selesai', 'tgl_sk_cpns', 'tugas_operasi_terakhir_tanggal_mulai', 
+            'tugas_operasi_terakhir_tanggal_selesai', 'tmt_kategori', 'tmt_tni', 'tugas_operasi_terakhir_tanggal_kep', 
+            'tugas_operasi_terakhir_tmt_operasi', 'dikmil_terakhir_tanggal_kep', 'dikmil_terakhir_tmt_pddk', 'tgl_sk_pns', 
+            'tmt_perwira', 'gaji_terakhir_tmt_pangkat', 'pendidikan_terakhir_no_urut', 'tmt_cpns', 'update_tgl_foto', 
+            'tgl_sk_tni', 'diklat_terakhir_tanggal_mulai', 'diklat_terakhir_tanggal_selesai', 'tmt_pns', 'tmt_kemhan', 
+            'pendidikan_terakhir_tanggal_sttb', 'tgl_lahir', 'last_tmt_jabatan', 'diklat_terakhir_jam_pelajaran', 
+            'bahasa_terakhir_no_urut', 'jabatan_terakhir_tmt_jabatan_selesai', 'tmt_pemberhentian', 'jabatan_terakhir_tgl_sk', 
+            'tgl_pensiun', 'pendidikan_terakhir_ipk', 'jabatan_terakhir_is_struktural', 'tanda_jasa_terakhir_no_urut', 
+            'pendidikan_terakhir_tanggal_kep', 'pendidikan_terakhir_tmt_pddk', 'gaji_terakhir_no_urut', 
+            'pendidikan_terakhir_hapus_sementara', 'tanda_jasa_terakhir_tanggal_kep', 'tanda_jasa_terakhir_tmt_tanda_jasa', 
+            'tinggi', 'gaji_terakhir_tanggal_sk', 'tugas_dinas_terakhir_no_urut', 'gaji_terakhir_tmt_sk', 
+            'jabatan_terakhir_no_urut', 'berat', 'tugas_dinas_terakhir_tanggal_mulai', 'no_randis', 'no_label', 
+            'no_karsu_karis', 'no_kps_kpi', 'no_regis', 'email_kantor', 'ciri_khusus', 'bentuk_muka', 'no_sk_cpns', 
+            'file_sk_cpns', 'no_sk_pns', 'file_sk_pns', 'no_sk_tni', 'file_sk_tni', 'no_sk_kemhan', 'ket_pindah', 
+            'no_sk_pensiun', 'jenis_jabatan', 'tipe_jabatan', 'tipe_pegawai','status_pegawai', 'tempat_lahir_id_sapk', 
+            'tingkat_pendidikan_nama', 'instansi_induk_nama', 'instansi_kerja_nama', 'unor_nama', 'unor_induk_nama', 
+            'mk_tahun', 'mk_bulan', 'kpkn_nama', 'nip_lama', 'jenis_pegawai_id_sapk', 'kedudukan_hukum_id_sapk', 
+            'nip_nrp_atasan', 'nama_atasan', 'satuan_atasan', 'jabatan_atasan', 'pangkat_atasan', 'jabatan_terakhir_no_kep', 
+            'jabatan_terakhir_no_sprin', 'jabatan_terakhir_satker', 'jabatan_terakhir_satker_asal', 'jabatan_terakhir_nama_jabatan', 
+            'jabatan_terakhir_jenis_jabatan', 'jabatan_terakhir_gol_jabatan', 'jabatan_terakhir_pangkat', 'jabatan_terakhir_keterangan', 
+            'jabatan_terakhir_nrp_penetap', 'jabatan_terakhir_nama_penetap', 'jabatan_terakhir_jabatan_penetap', 
+            'jabatan_terakhir_pangkat_penetap', 'jabatan_terakhir_sumber_data', 'jabatan_terakhir_jabatan_anomali', 
+            'jabatan_terakhir_tipe_jabatan', 'jabatan_terakhir_no_sk', 'jabatan_terakhir_sk_file', 'gaji_terakhir_no_sk', 
+            'gaji_terakhir_pejabat_penetap', 'gaji_terakhir_masa_kerja_th', 'gaji_terakhir_masa_kerja_bl', 
+            'gaji_terakhir_jenis_kenaikan', 'gaji_terakhir_sudah_dibayar', 'gaji_terakhir_validator', 'gaji_terakhir_is_trigger', 
+            'gaji_terakhir_kppn', 'gaji_terakhir_nrp_penetap', 'gaji_terakhir_nama_penetap', 'gaji_terakhir_jabatan_penetap', 
+            'gaji_terakhir_pangkat_penetap', 'gaji_terakhir_sumber_data', 'pendidikan_terakhir_jurusan', 
+            'pendidikan_terakhir_nama_sekolah', 'pendidikan_terakhir_tempat_sekolah', 'pendidikan_terakhir_kepala_sekolah', 
+            'pendidikan_terakhir_no_sttb', 'pendidikan_terakhir_tahun_lulus', 'pendidikan_terakhir_nama_bidang', 
+            'pendidikan_terakhir_nama_pendidikan', 'pendidikan_terakhir_kode_gelar', 'pendidikan_terakhir_kode_bidang', 
+            'pendidikan_terakhir_akreditasi', 'pendidikan_terakhir_no_kep', 'pendidikan_terakhir_keterangan', 
+            'pendidikan_terakhir_sumber_data', 'pendidikan_terakhir_pendidikan_anomali', 'pendidikan_terakhir_negara', 
+            'pendidikan_terakhir_gelar_depan', 'pendidikan_terakhir_gelar_belakang', 'pendidikan_terakhir_file_ijazah', 
+            'dikmil_terakhir_dikmil', 'dikmil_terakhir_jenis_dikmil', 'dikmil_terakhir_tahun_lulus', 'dikmil_terakhir_penyelenggara', 
+            'dikmil_terakhir_ranking_dikmil', 'dikmil_terakhir_jumlah_siswa', 'dikmil_terakhir_status_aktif', 
+            'dikmil_terakhir_jenis_pendidikan', 'dikmil_terakhir_tempat', 'dikmil_terakhir_no_sk', 'dikmil_terakhir_no_kep', 
+            'dikmil_terakhir_keterangan', 'dikmil_terakhir_sumber_data', 'dikmil_terakhir_pendidikan_militer_anomali', 
+            'dikmil_terakhir_angkatan', 'dikmil_terakhir_file', 'kinerja_terakhir_tahun', 'kinerja_terakhir_jabatan', 
+            'kinerja_terakhir_satuan', 'kinerja_terakhir_nilai_skp', 'kinerja_terakhir_nilai_perilaku', 'kinerja_terakhir_nilai_prestasi', 
+            'kinerja_terakhir_nrp_penetap', 'kinerja_terakhir_nama_penetap', 'kinerja_terakhir_jabatan_penetap', 
+            'kinerja_terakhir_pangkat_penetap', 'kinerja_terakhir_nilai_orientasi_pelayanan', 'kinerja_terakhir_nilai_komitmen', 
+            'kinerja_terakhir_nilai_kerjasama', 'kinerja_terakhir_nilai_integritas', 'kinerja_terakhir_nilai_disiplin', 
+            'kinerja_terakhir_nilai_kepemimpinan', 'kinerja_terakhir_nilai_ppkp', 'kinerja_terakhir_file_kinerja', 'kinerja_terakhir_nama_atasan_penetap', 
+            'tugas_dinas_terakhir_negara', 'tugas_dinas_terakhir_tugas', 'tugas_dinas_terakhir_keterangan', 'tugas_dinas_terakhir_tahun', 
+            'tugas_dinas_terakhir_no_sprin', 'tugas_dinas_terakhir_nrp_penetap', 'tugas_dinas_terakhir_nama_penetap', 'tugas_dinas_terakhir_jabatan_penetap', 
+            'tugas_dinas_terakhir_pangkat_penetap', 'tugas_dinas_terakhir_sumber_data', 'tugas_dinas_terakhir_tugas_ln_anomali', 'tugas_dinas_terakhir_lama_tugas', 
+            'tugas_dinas_terakhir_lokasi', 'tugas_dinas_terakhir_provinsi', 'tugas_dinas_terakhir_kabkota', 'tugas_dinas_terakhir_file_dinas', 
+            'tugas_operasi_terakhir_operasi', 'tugas_operasi_terakhir_keterangan', 'tugas_operasi_terakhir_tahun', 'tugas_operasi_terakhir_nokep', 
+            'tugas_operasi_terakhir_lokasi', 'tugas_operasi_terakhir_jabatan', 'tugas_operasi_terakhir_negara', 'tugas_operasi_terakhir_sumber_data', 
+            'tugas_operasi_terakhir_tugas_operasi_anomali', 'tugas_operasi_terakhir_provinsi', 'tugas_operasi_terakhir_kabkota', 'tugas_operasi_terakhir_file_tugas', 
+            'diklat_terakhir_nama_diklat', 'diklat_terakhir_surat_tugas', 'diklat_terakhir_tempat', 'diklat_terakhir_hasil', 'diklat_terakhir_tahun', 'diklat_terakhir_file_diklat', 
+            'bahasa_terakhir_nama_bahasa', 'bahasa_terakhir_kemampuan_bicara', 'bahasa_terakhir_kemampuan_membaca', 'bahasa_terakhir_kemampuan_menulis', 'bahasa_terakhir_keterangan', 'bahasa_terakhir_file_bahasa', 'tanda_jasa_terakhir_nama_tanda_jasa', 'tanda_jasa_terakhir_sumber_data', 'tanda_jasa_terakhir_file_tanda_jasa', 'tanda_jasa_terakhir_nama_pemberi_tanda_jasa', 'tanda_jasa_terakhir_keterangan', 'diklat_terakhir_tanggal_kep', 'diklat_terakhir_file_tanggal_kep', 'diklat_terakhir_is_trigger'
+
         ],
         'vw_umur_personel': [
             'personelid', 'nama', 'tgllahir', 'umur', 'nrp'
+        ],
+        'vw_pangkat_tunggal':[
+            'nip_tunggal','nama_tunggal', 'nourut', 'nip', 'nama', 'nama_pangkat', 'tmt_pangkat', 'nokep'
         ]
     }
     
@@ -129,9 +231,19 @@ def init_database() -> SQLDatabase:
 
 def generate_sql_query(question: str) -> str:
     """Menghasilkan query SQL berdasarkan pertanyaan user"""
-    system_prompt = get_detailed_schema()
+    system_prompt = get_detailed_schema() + """
+    ATURAN WAJIB:
+    1. JANGAN PERNAH menulis kata 'sql' di awal atau di tengah query
+    2. Query HARUS dimulai langsung dengan kata SELECT
+    3. Ini contoh format yang BENAR:
+       SELECT kolom FROM tabel
+    4. Ini contoh format yang SALAH:
+       sql SELECT kolom FROM tabel
+       SQL query: SELECT kolom FROM tabel
+    5. nama_pangkat = last_pangkat
+    """
     
-    llm = ChatOllama(model="llama3.2", temperature=0.1)
+    llm = ChatOllama(model="llama3.2-vision", temperature=0.1)
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
@@ -139,9 +251,10 @@ def generate_sql_query(question: str) -> str:
         Pertanyaan: {question}
         
         INGAT:
+        - Query HARUS dimulai langsung dengan kata SELECT
+        - JANGAN PERNAH menambahkan kata 'sql' di awal query
         - JANGAN gunakan backtick (`)
-        - JANGAN tambahkan kata 'sql' di awal
-        - Mulai langsung dengan SELECT
+        - Gunakan nama kolom yang tepat
         
         Hasilkan HANYA query SQL yang valid, tanpa penjelasan tambahan.
         Gunakan nama kolom yang tepat dari skema yang diberikan.""")
@@ -151,7 +264,7 @@ def generate_sql_query(question: str) -> str:
     
     # Generate query pertama
     sql = chain.invoke({"question": question})
-    sql = clean_sql_query(sql)
+    cleaned_sql = clean_sql_query(sql)
     
     # Validasi query
     if not validate_sql_query(sql) or not validate_column_names(sql):
@@ -163,7 +276,7 @@ def generate_sql_query(question: str) -> str:
             
             PASTIKAN:
             1. Gunakan nama kolom yang tepat dari skema
-            2. Gunakan view yang sesuai (vw_personel_analytic atau vw_umur_personel)
+            2. Gunakan view yang sesuai (vw_personel_analytic, vw_umur_personel, vw_pangkat_tunggal)
             3. Format query yang benar
             
             Hasilkan HANYA query SQL.""")
@@ -171,13 +284,18 @@ def generate_sql_query(question: str) -> str:
         
         chain = specific_prompt | llm | StrOutputParser()
         sql = chain.invoke({"question": question})
-        sql = clean_sql_query(sql)
+        cleaned_sql = clean_sql_query(sql)
+        print(f"Original query: {sql}")
+        # print(f"Cleaned query: {cleaned_sql}")
     
-    return sql
+    return cleaned_sql
 
 def execute_query(db: SQLDatabase, query: str) -> pd.DataFrame:
     """Execute SQL query and return results as DataFrame"""
     try:
+        if 'sql' in query.lower().split():
+            query = clean_sql_query(query)
+        
         # Get the underlying SQLAlchemy engine
         engine = db._engine
         # Execute query and return DataFrame
@@ -186,7 +304,7 @@ def execute_query(db: SQLDatabase, query: str) -> pd.DataFrame:
         st.error(f"Error executing query: {str(e)}")
         return pd.DataFrame()
 
-def get_response(user_query: str, db: SQLDatabase, chat_history: list) -> str:
+def get_response(user_query: str, db: SQLDatabase, chat_history: list) -> tuple:
     """Mendapatkan respons untuk pertanyaan user"""
     try:
         # Generate SQL query
@@ -194,8 +312,16 @@ def get_response(user_query: str, db: SQLDatabase, chat_history: list) -> str:
         print(f"Generated query: {sql_query}")
         
         # Eksekusi query dan dapatkan hasil
-        # query_result = db.run(sql_query)
         df_results = execute_query(db, sql_query)
+        
+        # Initialize default values for visualization
+        viz_result = {'success': False, 'figure': None}
+        viz_description = ""
+        
+        # Only attempt visualization if we have valid results
+        if not df_results.empty:
+            viz_result = create_visualization(df_results, user_query)
+            viz_description = generate_viz_description(viz_result, df_results)
         
         # Template untuk respons
         template = """
@@ -205,6 +331,9 @@ def get_response(user_query: str, db: SQLDatabase, chat_history: list) -> str:
         DATA HASIL QUERY:
         {raw_data}
         
+        VISUALISASI:
+        {viz_description}
+        
         ANALISIS:
         Berdasarkan data di atas, {analysis}
         
@@ -212,11 +341,14 @@ def get_response(user_query: str, db: SQLDatabase, chat_history: list) -> str:
         """
         
         prompt = ChatPromptTemplate.from_template(template)     
-        llm = ChatOllama(model="llama3.2", temperature=0.1)
+        llm = ChatOllama(model="llama3.2-vision", temperature=0.1)
         
         chain = RunnablePassthrough.assign(
-            raw_data=lambda x: df_results.to_string(),
-            analysis=lambda x: llm.predict(f"Berikan analisis dari data berikut: {df_results.to_string()}")
+            raw_data=lambda x: df_results.to_string() if not df_results.empty else "No data found",
+            viz_description=lambda x: viz_description,
+            analysis=lambda x: llm.predict(f"""Berikan analisis dari data berikut:
+            Data: {df_results.to_string() if not df_results.empty else 'No data found'}
+            Visualization Description: {viz_description}""")
         ) | prompt | llm | StrOutputParser()
         
         response = chain.invoke({
@@ -225,10 +357,13 @@ def get_response(user_query: str, db: SQLDatabase, chat_history: list) -> str:
             "chat_history": chat_history
         })
         
-        return response, df_results
+        return response, df_results, viz_result
         
     except Exception as e:
-        return f"Maaf, terjadi kesalahan dalam memproses pertanyaan Anda. Detail: {str(e)}"
+        # Return a tuple with three elements to match the expected return type
+        return (f"Maaf, terjadi kesalahan dalam memproses pertanyaan Anda. Detail: {str(e)}", 
+                pd.DataFrame(),  # Empty DataFrame
+                {'success': False, 'figure': None})  # Default viz_result
 
 def format_query_result(result: str) -> str:
     """Format hasil query agar lebih mudah dibaca"""
@@ -285,12 +420,16 @@ if user_query is not None and user_query.strip() != "":
         st.markdown(user_query)
         
     with st.chat_message("AI"):
-        response, df_results = get_response(user_query, st.session_state.db, st.session_state.chat_history)
+        response, df_results, viz_result = get_response(user_query, st.session_state.db, st.session_state.chat_history)
         st.markdown(response)
         
         if df_results is not None and not df_results.empty:
             st.write("Query Results:")
             st.dataframe(df_results)
+            
+            if viz_result['success']:
+                st.write("Data Visualization:")
+                st.plotly_chart(viz_result['figure'], use_container_width=True)
             
             df_content = f"\nData Results:\n```\n{df_results.to_string()}\n```"
             full_response = response + df_content
