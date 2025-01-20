@@ -17,7 +17,7 @@ class LlamaService:
     def __init__(self):
         """Initialize LlamaService with shared LLM instances"""
         self.llm_vision = ChatOllama(
-                            model="llama3.2-vision", 
+                            model="llama3sql", 
                             temperature=0.1, 
                             n_gpu_layers=-1,
                             # num_gqa = 8,
@@ -25,7 +25,7 @@ class LlamaService:
                             # top_p = 0.9
                             )
         self.llm_base = ChatOllama(
-                            model="llama3.2", 
+                            model="llama3sql", 
                             temperature=0.1, 
                             n_gpu_layers=-1,
                             # num_gqa = 8,
@@ -48,7 +48,16 @@ class LlamaService:
     #         temperature=0.1,
     #         api_key=api_key
     #     )
-        
+    
+    def extract_sql_query(self, text: str) -> str:
+        """Extract only the SQL query from text, supporting both WITH and SELECT"""
+        # Find query starting with either WITH or SELECT
+        pattern = r'(WITH\s+.*?AS\s*\(.*\)\s*SELECT.*|SELECT\s+.*?)(?=;|$)'
+        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        if match:
+            return match.group(0).strip()
+        return text
+    
     def validate_sql_query(self, query: str) -> bool:
         """Validate SQL query"""
         valid_starts = ['SELECT', 'WITH']
@@ -72,6 +81,11 @@ class LlamaService:
         cleaned = re.sub(r'--.*$', '', cleaned, flags=re.MULTILINE)
         cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
         cleaned = ' '.join(cleaned.split())
+        
+        # Normalisasi whitespace dengan mempertahankan format CTE
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+        # Perbaiki formatting untuk WITH clause
+        cleaned = re.sub(r'WITH\s+(\w+)\s+AS\s*\(', r'WITH \1 AS (', cleaned, flags=re.IGNORECASE)
         
         return cleaned
 
@@ -165,6 +179,10 @@ class LlamaService:
         return """Anda adalah ahli SQL yang bekerja dengan database PostgreSQL. 
         
         PENTING: 
+        - hasilkan hanya berbentuk query sql yang valid
+        - Query HARUS dimulai dengan WITH (untuk CTE) atau SELECT
+        - JANGAN menambahkan titik koma (;) di akhir query
+        - Gunakan CTE (WITH) untuk query kompleks yang membutuhkan temporary result
         - JANGAN gunakan backtick (`)
         - JANGAN tambahkan kata 'sql' di awal query atau di tengah query
         - Gunakan nama kolom yang tepat
@@ -246,22 +264,15 @@ class LlamaService:
         if not self.validate_sql_query(sql) or not self.validate_column_names(sql):
             specific_prompt = ChatPromptTemplate.from_messages([
                 ("system", system_prompt),
-                ("user", f"""Query sebelumnya tidak valid. Buat query baru untuk pertanyaan:
-                {question}
-                
-                PASTIKAN:
-                1. Gunakan nama kolom yang tepat dari skema
-                2. Gunakan view yang sesuai (vw_personel_analytic, vw_umur_personel, vw_pangkat_tunggal)
-                3. Format query yang benar
-                
-                Hasilkan HANYA query SQL.""")
+                ("user", f"Buat query SQL untuk: {question}")
             ])
             
             chain = specific_prompt | self.llm_vision | StrOutputParser()
             sql = chain.invoke({"question": question})
             cleaned_sql = self.clean_sql_query(sql)
-        
-        return cleaned_sql
+            
+        final_sql = self.extract_sql_query(cleaned_sql)
+        return final_sql
 
     def get_analysis_response(self, df_results: pd.DataFrame, viz_description: str) -> str:
         """Generate analysis response using LLaMA"""
